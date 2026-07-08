@@ -60,9 +60,6 @@ function getTaskId(response: unknown): string | undefined {
     if (nestedTaskId) return nestedTaskId;
   }
 
-  const singleValue = Object.values(payload).length === 1 ? Object.values(payload)[0] : undefined;
-  if (typeof singleValue === 'string' || typeof singleValue === 'number') return getTaskId(singleValue);
-
   return undefined;
 }
 

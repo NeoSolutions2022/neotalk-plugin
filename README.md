@@ -1,6 +1,6 @@
 # NeoTalk Libras Chrome Extension
 
-**Versão atual:** 1.4.4
+**Versão atual:** 1.4.5
 
 Extensão Chrome Manifest V3 para traduzir texto selecionado, fala do microfone e tentativa de áudio da aba atual para Libras com avatar NeoTalk.
 

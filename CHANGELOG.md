@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.5
+
+- Corrige extração incorreta de `task_id` quando a resposta contém apenas `status: accepted`.
+- Evita chamadas inválidas para `/task-status/accepted`; agora só consulta status quando há um identificador real de task.
+
 ## 1.4.4
 
 - Ajusta o polling para usar o endpoint correto `/task-status/<task_id>`.
