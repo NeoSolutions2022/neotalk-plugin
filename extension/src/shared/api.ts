@@ -17,14 +17,15 @@ function normalizeBaseUrl(configuredUrl: string): string {
     .replace(/\/sign-process-pose$/, '')
     .replace(/\/sign-process-type$/, '')
     .replace(/\/task-status-type$/, '')
-    .replace(/\/task-status-pose$/, '');
+    .replace(/\/task-status-pose$/, '')
+    .replace(/\/task-status$/, '');
 }
 
 function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: string; statusUrls: string[] } {
   const apiBaseUrl = normalizeBaseUrl(configuredUrl);
   return {
     submitUrl: `${apiBaseUrl}/sign-process-pose`,
-    statusUrls: taskId ? [`${apiBaseUrl}/task-status-type/${encodeURIComponent(taskId)}`] : []
+    statusUrls: taskId ? [`${apiBaseUrl}/task-status/${encodeURIComponent(taskId)}`] : []
   };
 }
 
