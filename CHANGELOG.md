@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.6
+
+- Corrige o caso em que o POST retorna HTTP 202 com body contendo `task_id`; agora o body é lido antes de tratar como `accepted`.
+- Ajusta o polling para consultar `/task-status/<task_id>` imediatamente e depois a cada 2 segundos por até 1 minuto.
+
 ## 1.4.5
 
 - Corrige extração incorreta de `task_id` quando a resposta contém apenas `status: accepted`.

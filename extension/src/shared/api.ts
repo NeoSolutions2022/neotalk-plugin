@@ -2,8 +2,8 @@ import { MESSAGES } from './messages.js';
 import { addDeveloperError, getPreferences, saveCaptionState } from './storage.js';
 import type { NeoTalkApiResponse, PhraseSource } from './types.js';
 
-const POLL_INTERVAL_MS = 1_000;
-const MAX_POLL_ATTEMPTS = 60;
+const POLL_INTERVAL_MS = 2_000;
+const MAX_POLL_ATTEMPTS = 30;
 const activeSubmissions = new Set<string>();
 let lastCompletedSubmission = '';
 
@@ -69,9 +69,8 @@ function isTaskPending(response: NeoTalkApiResponse): boolean {
 }
 
 async function readResponsePayload(response: Response): Promise<NeoTalkApiResponse | string> {
-  if (response.status === 202) return { status: 'accepted' };
   const text = await response.text();
-  if (!text.trim()) return '';
+  if (!text.trim()) return response.status === 202 ? { status: 'accepted' } : '';
   const contentType = response.headers.get('content-type') ?? '';
   return contentType.includes('application/json') ? (parseMaybeJson(text) as NeoTalkApiResponse | string) : parseMaybeJson(text);
 }
