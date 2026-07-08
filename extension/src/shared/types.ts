@@ -7,6 +7,7 @@ export type ExtensionPreferences = {
   avatarExpanded: boolean;
   developerMode: boolean;
   apiKey: string;
+  selectionModeEnabled: boolean;
 };
 
 export type DeveloperError = { message: string; detail?: string; createdAt: number };
@@ -30,9 +31,11 @@ export type NeoTalkApiResponse = {
   id?: string;
   job_id?: string;
   task_id?: string;
+  taskId?: string;
   status?: string;
   result?: NeoTalkApiResponse;
   message?: unknown;
+  error?: unknown;
 };
 
 export type SubmitPhraseMessage = {

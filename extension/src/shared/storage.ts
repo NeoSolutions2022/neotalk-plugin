@@ -1,13 +1,14 @@
 import type { CaptionState, DeveloperError, ExtensionPreferences } from './types.js';
 
-export const DEFAULT_PROXY_URL = 'https://api.neotalk.com/extension/sign-process-pose';
+export const DEFAULT_PROXY_URL = 'https://api.neotalk.com/extension';
 export const DEFAULT_PREFERENCES: ExtensionPreferences = {
   proxyUrl: DEFAULT_PROXY_URL,
   autoWelcomeEnabled: true,
   captionsEnabled: true,
   avatarExpanded: true,
   developerMode: false,
-  apiKey: ''
+  apiKey: '',
+  selectionModeEnabled: false
 };
 
 const PREFERENCES_KEY = 'neotalkPreferences';

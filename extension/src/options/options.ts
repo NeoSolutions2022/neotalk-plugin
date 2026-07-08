@@ -6,6 +6,7 @@ const proxyUrl = document.querySelector<HTMLInputElement>('#proxyUrl')!;
 const autoWelcomeEnabled = document.querySelector<HTMLInputElement>('#autoWelcomeEnabled')!;
 const captionsEnabled = document.querySelector<HTMLInputElement>('#captionsEnabled')!;
 const avatarExpanded = document.querySelector<HTMLInputElement>('#avatarExpanded')!;
+const selectionModeEnabled = document.querySelector<HTMLInputElement>('#selectionModeEnabled')!;
 const developerMode = document.querySelector<HTMLInputElement>('#developerMode')!;
 const apiKey = document.querySelector<HTMLInputElement>('#apiKey')!;
 const toggleDeveloperErrors = document.querySelector<HTMLButtonElement>('#toggleDeveloperErrors')!;
@@ -34,6 +35,7 @@ async function loadOptions(): Promise<void> {
   autoWelcomeEnabled.checked = preferences.autoWelcomeEnabled;
   captionsEnabled.checked = preferences.captionsEnabled;
   avatarExpanded.checked = preferences.avatarExpanded;
+  selectionModeEnabled.checked = preferences.selectionModeEnabled;
   developerMode.checked = preferences.developerMode;
   apiKey.value = preferences.apiKey;
   apiKey.disabled = !preferences.developerMode;
@@ -47,6 +49,7 @@ form.addEventListener('submit', (event) => {
     autoWelcomeEnabled: autoWelcomeEnabled.checked,
     captionsEnabled: captionsEnabled.checked,
     avatarExpanded: avatarExpanded.checked,
+    selectionModeEnabled: selectionModeEnabled.checked,
     developerMode: developerMode.checked,
     apiKey: developerMode.checked ? apiKey.value.trim() : ''
   };

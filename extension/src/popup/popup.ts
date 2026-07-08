@@ -1,7 +1,7 @@
 import { updateAvatarVideo } from '../shared/avatar.js';
 import { renderCaptionState } from '../shared/captions.js';
 import { MESSAGES } from '../shared/messages.js';
-import { CAPTION_STATE_KEY, getCaptionState, getPreferences, getSelectedText, markWelcomeSent, saveCaptionState, wasWelcomeSent } from '../shared/storage.js';
+import { CAPTION_STATE_KEY, getCaptionState, getPreferences, getSelectedText, markWelcomeSent, saveCaptionState, savePreferences, wasWelcomeSent } from '../shared/storage.js';
 import type { RuntimeMessage } from '../shared/types.js';
 import type { SpeechRecognitionResultEvent } from '../shared/speech.js';
 
@@ -12,6 +12,7 @@ const videoElement = document.querySelector<HTMLVideoElement>('#avatar-video')!;
 const placeholderElement = document.querySelector<HTMLElement>('#avatar-placeholder')!;
 const manualText = document.querySelector<HTMLTextAreaElement>('#manualText')!;
 const tabAudioButton = document.querySelector<HTMLButtonElement>('#tabAudioButton')!;
+const selectionModeButton = document.querySelector<HTMLButtonElement>('#selectionModeButton')!;
 let tabAudioEnabled = false;
 
 async function refreshUi(): Promise<void> {
@@ -20,6 +21,7 @@ async function refreshUi(): Promise<void> {
   renderCaptionState(captionElement, statusElement, state);
   const selectedText = await getSelectedText();
   if (selectedText && manualText.value.trim().length === 0) manualText.value = selectedText;
+  selectionModeButton.textContent = preferences.selectionModeEnabled ? 'Desativar modo seleção' : 'Ativar modo seleção';
   document.querySelector('#avatar-container')?.classList.toggle('expanded', preferences.avatarExpanded);
   if (state.fileUrl) {
     placeholderElement.hidden = true;
@@ -76,6 +78,12 @@ tabAudioButton.addEventListener('click', () => {
   tabAudioEnabled = !tabAudioEnabled;
   tabAudioButton.textContent = tabAudioEnabled ? 'Desativar áudio da aba' : 'Ativar áudio da aba';
   void sendRuntimeMessage({ type: tabAudioEnabled ? 'NEOTALK_START_TAB_AUDIO' : 'NEOTALK_STOP_TAB_AUDIO' });
+});
+
+selectionModeButton.addEventListener('click', () => {
+  void getPreferences()
+    .then((preferences) => savePreferences({ ...preferences, selectionModeEnabled: !preferences.selectionModeEnabled }))
+    .then(refreshUi);
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

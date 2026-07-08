@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+- Integra o fluxo assíncrono `/sign-process-type` + `/task-status-type/<task_id>`.
+- Adiciona modo seleção automático para enviar texto selecionado sem depender do popup aberto.
+- Atualiza a URL configurável para representar a URL base do proxy/API.
+
 ## 1.1.0
 
 - Corrige a seleção de texto em páginas usando content script clássico e tooltip isolado em Shadow DOM.

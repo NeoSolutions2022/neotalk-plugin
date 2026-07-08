@@ -8,6 +8,8 @@ const HOST_ID = 'neotalk-extension-selection-host';
 const TOOLTIP_CLASS = 'neotalk-extension-tooltip';
 let selectedPhrase = '';
 let hideTimer: number | undefined;
+let selectionModeEnabled = false;
+let lastAutoSubmittedPhrase = '';
 
 function createTooltip(): HTMLButtonElement {
   const existingHost = document.getElementById(HOST_ID);
@@ -51,6 +53,20 @@ function createTooltip(): HTMLButtonElement {
 const tooltip = createTooltip();
 tooltip.style.display = 'none';
 
+function loadSelectionModePreference(): void {
+  chrome.storage.sync.get('neotalkPreferences', (result) => {
+    const preferences = result.neotalkPreferences as { selectionModeEnabled?: boolean } | undefined;
+    selectionModeEnabled = Boolean(preferences?.selectionModeEnabled);
+  });
+}
+
+loadSelectionModePreference();
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'sync' || !changes.neotalkPreferences) return;
+  const preferences = changes.neotalkPreferences.newValue as { selectionModeEnabled?: boolean } | undefined;
+  selectionModeEnabled = Boolean(preferences?.selectionModeEnabled);
+});
+
 function hideTooltip(): void {
   tooltip.style.display = 'none';
 }
@@ -76,6 +92,13 @@ function positionTooltipFromSelection(): void {
   }
 
   selectedPhrase = frase;
+
+  if (selectionModeEnabled && lastAutoSubmittedPhrase !== frase) {
+    lastAutoSubmittedPhrase = frase;
+    const message: NeoTalkSelectionMessage = { type: 'NEOTALK_SUBMIT_PHRASE', frase, source: 'selection' };
+    void chrome.runtime.sendMessage(message);
+  }
+
   tooltip.style.left = `${Math.min(window.innerWidth - 252, Math.max(8, rect.left))}px`;
   tooltip.style.top = `${Math.min(window.innerHeight - 48, Math.max(8, rect.bottom + 8))}px`;
   tooltip.style.display = 'block';

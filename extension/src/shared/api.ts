@@ -3,7 +3,7 @@ import { addDeveloperError, getPreferences, saveCaptionState } from './storage.j
 import type { NeoTalkApiResponse, PhraseSource } from './types.js';
 
 const POLL_INTERVAL_MS = 2_000;
-const MAX_POLL_ATTEMPTS = 30;
+const MAX_POLL_ATTEMPTS = 60;
 const activeSubmissions = new Set<string>();
 let lastCompletedSubmission = '';
 
@@ -11,32 +11,55 @@ function getFileUrl(response: NeoTalkApiResponse): string | undefined {
   return response.file_url ?? response.fileUrl ?? response.url ?? response.video_url ?? response.result?.file_url ?? response.result?.fileUrl;
 }
 
-function getPollUrl(response: NeoTalkApiResponse, proxyUrl: string): string | undefined {
-  const rawPollUrl = response.status_url ?? response.statusUrl ?? response.polling_url;
-  if (!rawPollUrl) return undefined;
+function normalizeApiBaseUrl(configuredUrl: string): string {
+  return configuredUrl.replace(/\/+$/, '').replace(/\/sign-process-type$/, '').replace(/\/task-status-type$/, '');
+}
 
-  const proxyOrigin = new URL(proxyUrl).origin;
-  const pollUrl = new URL(rawPollUrl, proxyOrigin);
-  return pollUrl.origin === proxyOrigin ? pollUrl.toString() : undefined;
+function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: string; statusUrl?: string } {
+  const apiBaseUrl = normalizeApiBaseUrl(configuredUrl);
+  return {
+    submitUrl: `${apiBaseUrl}/sign-process-type`,
+    statusUrl: taskId ? `${apiBaseUrl}/task-status-type/${encodeURIComponent(taskId)}` : undefined
+  };
+}
+
+function getTaskId(response: NeoTalkApiResponse | string): string | undefined {
+  if (typeof response === 'string') return response.trim() || undefined;
+  const taskId = response.task_id ?? response.id ?? response.job_id ?? response.taskId;
+  return typeof taskId === 'string' && taskId.trim().length > 0 ? taskId.trim() : undefined;
+}
+
+async function readResponsePayload(response: Response): Promise<NeoTalkApiResponse | string> {
+  if (response.status === 202) return {};
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) return (await response.json()) as NeoTalkApiResponse;
+  return (await response.text()).trim();
 }
 
 async function sleep(milliseconds: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function pollForFinalVideo(initialResponse: NeoTalkApiResponse, proxyUrl: string): Promise<NeoTalkApiResponse> {
-  let response = initialResponse;
+function authHeaders(developerMode: boolean, apiKey: string): HeadersInit {
+  return developerMode && apiKey.trim().length > 0 ? { 'x-api-key': apiKey.trim() } : {};
+}
 
-  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS && !getFileUrl(response); attempt += 1) {
-    const pollUrl = getPollUrl(response, proxyUrl);
-    if (!pollUrl || response.status === 'failed' || response.status === 'error') break;
+async function pollTaskStatus(taskId: string, proxyUrl: string, headers: HeadersInit): Promise<NeoTalkApiResponse> {
+  const { statusUrl } = buildApiUrls(proxyUrl, taskId);
+  if (!statusUrl) throw new Error('Task status URL indisponível.');
 
+  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
     await sleep(POLL_INTERVAL_MS);
-    const pollResponse = await fetch(pollUrl);
-    response = (await pollResponse.json()) as NeoTalkApiResponse;
+    const response = await fetch(statusUrl, { method: 'GET', headers });
+
+    if (response.status === 202) continue;
+    const payload = await readResponsePayload(response);
+    if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.error ?? payload.message ?? MESSAGES.translationError));
+    if (typeof payload === 'string') throw new Error(payload || MESSAGES.translationError);
+    if (getFileUrl(payload)) return payload;
   }
 
-  return response;
+  throw new Error('Tempo limite ao aguardar a tarefa de tradução.');
 }
 
 export async function submitPhrase(frase: string, source: PhraseSource): Promise<string | undefined> {
@@ -51,22 +74,28 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
 
   try {
     const { proxyUrl, developerMode, apiKey } = await getPreferences();
+    const headers = authHeaders(developerMode, apiKey);
     const formData = new FormData();
     formData.append('frase', trimmed);
 
-    const response = await fetch(proxyUrl, {
+    const { submitUrl } = buildApiUrls(proxyUrl);
+    const response = await fetch(submitUrl, {
       method: 'POST',
-      headers: {
-        ...(developerMode && apiKey.trim().length > 0 ? { 'x-api-key': apiKey.trim() } : {})
-      },
+      headers,
       body: formData
     });
-    const payload = (await response.json()) as NeoTalkApiResponse;
+    const payload = await readResponsePayload(response);
 
-    if (!response.ok) throw new Error(String(payload.message ?? MESSAGES.translationError));
+    if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.message ?? payload.error ?? MESSAGES.translationError));
+    if (typeof payload === 'string' && !payload) throw new Error(MESSAGES.translationError);
 
-    const finalPayload = await pollForFinalVideo(payload, proxyUrl);
-    const fileUrl = getFileUrl(finalPayload);
+    const immediateFileUrl = typeof payload === 'string' ? undefined : getFileUrl(payload);
+    const taskId = getTaskId(payload);
+    const finalPayload = immediateFileUrl ? (payload as NeoTalkApiResponse) : taskId ? await pollTaskStatus(taskId, proxyUrl, headers) : undefined;
+    const fileUrl = finalPayload ? getFileUrl(finalPayload) : undefined;
+
+    if (!fileUrl) throw new Error('A tarefa terminou sem retornar URL do vídeo.');
+
     await saveCaptionState({ caption: trimmed, status: '', fileUrl, error: undefined });
     lastCompletedSubmission = submissionKey;
     return fileUrl;
