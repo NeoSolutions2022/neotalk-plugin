@@ -2,7 +2,7 @@ import { MESSAGES } from './messages.js';
 import { addDeveloperError, getPreferences, saveCaptionState } from './storage.js';
 import type { NeoTalkApiResponse, PhraseSource } from './types.js';
 
-const POLL_INTERVAL_MS = 2_000;
+const POLL_INTERVAL_MS = 1_000;
 const MAX_POLL_ATTEMPTS = 60;
 const activeSubmissions = new Set<string>();
 let lastCompletedSubmission = '';
@@ -11,28 +11,20 @@ function getFileUrl(response: NeoTalkApiResponse): string | undefined {
   return response.file_url ?? response.fileUrl ?? response.url ?? response.video_url ?? response.result?.file_url ?? response.result?.fileUrl;
 }
 
-function normalizeSubmitUrl(configuredUrl: string): string {
-  return configuredUrl.replace(/\/+$/, '');
+function normalizeBaseUrl(configuredUrl: string): string {
+  return configuredUrl
+    .replace(/\/+$/, '')
+    .replace(/\/sign-process-pose$/, '')
+    .replace(/\/sign-process-type$/, '')
+    .replace(/\/task-status-type$/, '')
+    .replace(/\/task-status-pose$/, '');
 }
 
 function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: string; statusUrls: string[] } {
-  const submitUrl = normalizeSubmitUrl(configuredUrl);
-  const url = new URL(submitUrl);
-  if (!taskId) return { submitUrl, statusUrls: [] };
-
-  const encodedTaskId = encodeURIComponent(taskId);
-  const primaryStatusPath = url.pathname.includes('sign-process-pose')
-    ? url.pathname.replace(/sign-process-pose$/, 'task-status-pose')
-    : url.pathname.replace(/sign-process-type$/, 'task-status-type');
-  const fallbackStatusPath = url.pathname.includes('sign-process-pose')
-    ? url.pathname.replace(/sign-process-pose$/, 'task-status-type')
-    : '';
-
+  const apiBaseUrl = normalizeBaseUrl(configuredUrl);
   return {
-    submitUrl,
-    statusUrls: [primaryStatusPath, fallbackStatusPath]
-      .filter(Boolean)
-      .map((statusPath) => `${url.origin}${statusPath}/${encodedTaskId}`)
+    submitUrl: `${apiBaseUrl}/sign-process-pose`,
+    statusUrls: taskId ? [`${apiBaseUrl}/task-status-type/${encodeURIComponent(taskId)}`] : []
   };
 }
 

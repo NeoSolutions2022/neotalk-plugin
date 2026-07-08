@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Configura apenas a URL base e monta internamente `/sign-process-pose` e `/task-status-type/<task_id>`.
+- Consulta o status da task a cada 1 segundo por até 1 minuto.
+- Adiciona avatar, legenda, status e menu de três pontos na janela flutuante de seleção.
+
 ## 1.3.0
 
 - Usa a URL padrão `https://infra-neotalk-api.k3p3ex.easypanel.host/sign-process-pose` sem anexar `/sign-process-type`.

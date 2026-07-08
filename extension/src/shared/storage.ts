@@ -1,6 +1,6 @@
 import type { CaptionState, DeveloperError, ExtensionPreferences } from './types.js';
 
-export const DEFAULT_PROXY_URL = 'https://infra-neotalk-api.k3p3ex.easypanel.host/sign-process-pose';
+export const DEFAULT_PROXY_URL = 'https://infra-neotalk-api.k3p3ex.easypanel.host';
 export const DEFAULT_PREFERENCES: ExtensionPreferences = {
   proxyUrl: DEFAULT_PROXY_URL,
   autoWelcomeEnabled: true,
