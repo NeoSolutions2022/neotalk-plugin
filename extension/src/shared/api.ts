@@ -51,13 +51,15 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
 
   try {
     const { proxyUrl, developerMode, apiKey } = await getPreferences();
+    const formData = new FormData();
+    formData.append('frase', trimmed);
+
     const response = await fetch(proxyUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         ...(developerMode && apiKey.trim().length > 0 ? { 'x-api-key': apiKey.trim() } : {})
       },
-      body: JSON.stringify({ frase: trimmed })
+      body: formData
     });
     const payload = (await response.json()) as NeoTalkApiResponse;
 
