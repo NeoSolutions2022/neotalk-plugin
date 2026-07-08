@@ -1,5 +1,5 @@
 import { MESSAGES } from './messages.js';
-import { getPreferences, saveCaptionState } from './storage.js';
+import { addDeveloperError, getPreferences, saveCaptionState } from './storage.js';
 import type { NeoTalkApiResponse, PhraseSource } from './types.js';
 
 const POLL_INTERVAL_MS = 2_000;
@@ -50,10 +50,13 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
   await saveCaptionState({ caption: trimmed, status: MESSAGES.processing, error: undefined });
 
   try {
-    const { proxyUrl } = await getPreferences();
+    const { proxyUrl, developerMode, apiKey } = await getPreferences();
     const response = await fetch(proxyUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(developerMode && apiKey.trim().length > 0 ? { 'x-api-key': apiKey.trim() } : {})
+      },
       body: JSON.stringify({ frase: trimmed })
     });
     const payload = (await response.json()) as NeoTalkApiResponse;
@@ -67,6 +70,7 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
     return fileUrl;
   } catch (error) {
     await saveCaptionState({ caption: trimmed, status: '', error: MESSAGES.translationError });
+    await addDeveloperError(MESSAGES.translationError, error);
     console.warn('NeoTalk: falha técnica ao traduzir frase.', error);
     return undefined;
   } finally {

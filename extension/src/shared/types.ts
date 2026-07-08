@@ -5,7 +5,11 @@ export type ExtensionPreferences = {
   autoWelcomeEnabled: boolean;
   captionsEnabled: boolean;
   avatarExpanded: boolean;
+  developerMode: boolean;
+  apiKey: string;
 };
+
+export type DeveloperError = { message: string; detail?: string; createdAt: number };
 
 export type CaptionState = {
   caption: string;

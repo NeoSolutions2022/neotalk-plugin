@@ -1,7 +1,7 @@
 import { updateAvatarVideo } from '../shared/avatar.js';
 import { renderCaptionState } from '../shared/captions.js';
 import { MESSAGES } from '../shared/messages.js';
-import { CAPTION_STATE_KEY, getCaptionState, getPreferences, markWelcomeSent, saveCaptionState, wasWelcomeSent } from '../shared/storage.js';
+import { CAPTION_STATE_KEY, getCaptionState, getPreferences, getSelectedText, markWelcomeSent, saveCaptionState, wasWelcomeSent } from '../shared/storage.js';
 import type { RuntimeMessage } from '../shared/types.js';
 import type { SpeechRecognitionResultEvent } from '../shared/speech.js';
 
@@ -18,6 +18,8 @@ async function refreshUi(): Promise<void> {
   const state = await getCaptionState();
   const preferences = await getPreferences();
   renderCaptionState(captionElement, statusElement, state);
+  const selectedText = await getSelectedText();
+  if (selectedText && manualText.value.trim().length === 0) manualText.value = selectedText;
   document.querySelector('#avatar-container')?.classList.toggle('expanded', preferences.avatarExpanded);
   if (state.fileUrl) {
     placeholderElement.hidden = true;
@@ -45,7 +47,7 @@ async function sendWelcomeOnce(): Promise<void> {
   const preferences = await getPreferences();
   if (!preferences.autoWelcomeEnabled || await wasWelcomeSent()) return;
   await markWelcomeSent();
-  await sendRuntimeMessage({ type: 'NEOTALK_SUBMIT_PHRASE', frase: 'Seja bem-vindo!', source: 'welcome' });
+  await sendRuntimeMessage({ type: 'NEOTALK_SUBMIT_PHRASE', frase: 'Seja bem-vindo!' /* também atende ao fluxo inicial de boas-vindas ao abrir a extensão */, source: 'welcome' });
 }
 
 document.querySelector('#translateButton')?.addEventListener('click', () => void submitManualPhrase());

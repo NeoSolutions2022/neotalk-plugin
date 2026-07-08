@@ -1,6 +1,6 @@
 import { submitPhrase } from '../shared/api.js';
 import { MESSAGES } from '../shared/messages.js';
-import { saveCaptionState } from '../shared/storage.js';
+import { addDeveloperError, saveCaptionState, saveSelectedText } from '../shared/storage.js';
 import type { RuntimeMessage } from '../shared/types.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen/offscreen.html';
@@ -54,6 +54,7 @@ async function startTabAudio(): Promise<void> {
     await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_START', streamId });
   } catch (error) {
     await saveCaptionState({ status: '', error: MESSAGES.tabAudioUnsupported });
+    await addDeveloperError(MESSAGES.tabAudioUnsupported, error);
     console.warn('NeoTalk: falha técnica ao capturar áudio da aba.', error);
   }
 }
@@ -70,6 +71,10 @@ async function stopTabAudio(): Promise<void> {
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
   void (async () => {
     if (message.type === 'NEOTALK_SUBMIT_PHRASE') {
+      if (message.source === 'selection') {
+        await saveSelectedText(message.frase);
+        await saveCaptionState({ caption: message.frase, status: 'Texto selecionado pronto para traduzir.', error: undefined });
+      }
       const fileUrl = await submitPhrase(message.frase, message.source);
       sendResponse({ ok: Boolean(fileUrl), fileUrl });
       return;

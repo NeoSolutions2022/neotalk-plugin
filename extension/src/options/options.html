@@ -15,8 +15,14 @@
         <label><input id="autoWelcomeEnabled" type="checkbox" /> Enviar boas-vindas automaticamente</label>
         <label><input id="captionsEnabled" type="checkbox" /> Exibir legendas</label>
         <label><input id="avatarExpanded" type="checkbox" /> Avatar expandido</label>
-        <p class="neotalk-extension-warning">Não informe chaves privadas nesta extensão. A chave da API deve ficar somente no backend/proxy NeoTalk.</p>
+        <label><input id="developerMode" type="checkbox" /> Modo desenvolvedor</label>
+        <label for="apiKey">Chave da API (somente desenvolvimento)</label>
+        <input id="apiKey" name="apiKey" type="password" autocomplete="off" placeholder="Não use em produção" />
+        <p class="neotalk-extension-warning">A chave da API dentro da extensão é insegura e pode ser vista por usuários. Use apenas em desenvolvimento; em produção, configure um proxy NeoTalk.</p>
         <button type="submit">Salvar configurações</button>
+        <button id="toggleDeveloperErrors" type="button" class="secondary">Exibir erros do desenvolvedor</button>
+        <button id="clearDeveloperErrors" type="button" class="secondary">Limpar erros do desenvolvedor</button>
+        <pre id="developerErrors" class="neotalk-extension-errors" hidden></pre>
         <div id="status" aria-live="polite"></div>
       </form>
     </main>

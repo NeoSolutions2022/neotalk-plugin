@@ -22,7 +22,7 @@ extension/
 
 ## Segurança
 
-A extensão não contém `NEOTALK_API_KEY` e não deve chamar a API externa diretamente com chave privada. Configure uma URL de proxy/backend NeoTalk na tela de configurações. O proxy deve receber `{ "frase": "texto" }`, chamar a API externa no servidor e adicionar a chave privada com segurança.
+A extensão não contém uma chave real hardcoded e, em produção, não deve chamar a API externa diretamente com chave privada. Configure uma URL de proxy/backend NeoTalk na tela de configurações. O proxy deve receber `{ "frase": "texto" }`, chamar a API externa no servidor e adicionar a chave privada com segurança. Para desenvolvimento local, o modo desenvolvedor permite informar temporariamente uma chave da API, mas isso é inseguro porque qualquer dado salvo na extensão pode ser inspecionado pelo usuário.
 
 URL padrão configurável:
 
@@ -47,6 +47,7 @@ npm run build
 4. Clique em "Carregar sem compactação".
 5. Selecione a pasta `extension/` deste repositório.
 6. Abra "Configurações" na extensão e ajuste a URL do proxy NeoTalk, se necessário.
+7. Use "Modo desenvolvedor" apenas para testes locais com chave temporária e para visualizar/limpar erros técnicos registrados.
 
 ## Limitações de navegador
 
