@@ -39,16 +39,29 @@ function parseMaybeJson(text: string): NeoTalkApiResponse | string {
   }
 }
 
-function getTaskId(response: NeoTalkApiResponse | string): string | undefined {
+function getTaskId(response: unknown): string | undefined {
+  if (response == null) return undefined;
+  if (typeof response === 'number') return String(response);
   if (typeof response === 'string') {
     const parsed = parseMaybeJson(response);
-    if (typeof parsed !== 'string') return getTaskId(parsed);
-    return parsed.trim() || undefined;
+    if (parsed !== response) return getTaskId(parsed);
+    return response.trim() || undefined;
+  }
+  if (typeof response !== 'object') return undefined;
+
+  const payload = response as Record<string, unknown>;
+  const directTaskId = payload.task_id ?? payload.taskId ?? payload.taskID ?? payload.id ?? payload.job_id ?? payload.jobId ?? payload.celery_task_id ?? payload.task;
+  if (typeof directTaskId === 'string' && directTaskId.trim().length > 0) return directTaskId.trim();
+  if (typeof directTaskId === 'number') return String(directTaskId);
+
+  for (const nestedKey of ['data', 'result', 'task', 'payload']) {
+    const nestedTaskId = getTaskId(payload[nestedKey]);
+    if (nestedTaskId) return nestedTaskId;
   }
 
-  const taskId = response.task_id ?? response.id ?? response.job_id ?? response.taskId;
-  if (typeof taskId === 'string' && taskId.trim().length > 0) return taskId.trim();
-  if (typeof taskId === 'number') return String(taskId);
+  const singleValue = Object.values(payload).length === 1 ? Object.values(payload)[0] : undefined;
+  if (typeof singleValue === 'string' || typeof singleValue === 'number') return getTaskId(singleValue);
+
   return undefined;
 }
 
@@ -136,10 +149,19 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
 
     const immediateFileUrl = typeof payload === 'string' ? undefined : getFileUrl(payload);
     const taskId = getTaskId(payload);
-    const finalPayload = immediateFileUrl ? (payload as NeoTalkApiResponse) : taskId ? await pollTaskStatus(taskId, proxyUrl, headers) : undefined;
+
+    if (!immediateFileUrl && !taskId) {
+      throw new Error(`A resposta do POST não retornou task_id. Payload: ${typeof payload === 'string' ? payload : JSON.stringify(payload)}`);
+    }
+
+    if (taskId) {
+      await saveCaptionState({ status: `Task ${taskId} criada. Consultando status...` });
+    }
+
+    const finalPayload = immediateFileUrl ? (payload as NeoTalkApiResponse) : await pollTaskStatus(taskId!, proxyUrl, headers);
     const fileUrl = finalPayload ? getFileUrl(finalPayload) : undefined;
 
-    if (!fileUrl) throw new Error('A tarefa terminou sem retornar URL do vídeo.');
+    if (!fileUrl) throw new Error(`A task ${taskId ?? ''} terminou sem retornar URL do vídeo.`);
 
     await saveCaptionState({ caption: trimmed, status: '', fileUrl, error: undefined });
     lastCompletedSubmission = submissionKey;

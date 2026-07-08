@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.3
+
+- Investiga e corrige o fluxo em que o POST retornava task, mas o polling não começava por variações no formato de `task_id`.
+- Aceita `task_id`, `taskId`, `id`, `job_id`, `celery_task_id`, valores numéricos, JSON em texto e respostas aninhadas.
+- Mostra explicitamente quando a task foi criada e quando o status começa a ser consultado.
+
 ## 1.4.2
 
 - Inicia a primeira consulta de status imediatamente após receber `task_id`.
