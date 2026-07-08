@@ -25,7 +25,7 @@ function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: stri
   const apiBaseUrl = normalizeBaseUrl(configuredUrl);
   return {
     submitUrl: `${apiBaseUrl}/sign-process-pose`,
-    statusUrls: taskId ? [`${apiBaseUrl}/task-status/${encodeURIComponent(taskId)}`] : []
+    statusUrls: taskId ? [`${apiBaseUrl}/task-status-pose/${encodeURIComponent(taskId)}`] : []
   };
 }
 

@@ -1,9 +1,13 @@
 # Changelog
 
+## 1.4.7
+
+- Ajusta o polling para usar o endpoint correto `/task-status-pose/<task_id>`.
+
 ## 1.4.6
 
 - Corrige o caso em que o POST retorna HTTP 202 com body contendo `task_id`; agora o body é lido antes de tratar como `accepted`.
-- Ajusta o polling para consultar `/task-status/<task_id>` imediatamente e depois a cada 2 segundos por até 1 minuto.
+- Ajusta o polling para consultar `/task-status-pose/<task_id>` imediatamente e depois a cada 2 segundos por até 1 minuto.
 
 ## 1.4.5
 
@@ -12,7 +16,7 @@
 
 ## 1.4.4
 
-- Ajusta o polling para usar o endpoint correto `/task-status/<task_id>`.
+- Ajusta o polling para usar o endpoint correto `/task-status-pose/<task_id>`.
 
 ## 1.4.3
 
@@ -33,7 +37,7 @@
 
 ## 1.4.0
 
-- Configura apenas a URL base e monta internamente `/sign-process-pose` e `/task-status/<task_id>`.
+- Configura apenas a URL base e monta internamente `/sign-process-pose` e `/task-status-pose/<task_id>`.
 - Consulta o status da task a cada 1 segundo por até 1 minuto.
 - Adiciona avatar, legenda, status e menu de três pontos na janela flutuante de seleção.
 
@@ -45,7 +49,7 @@
 
 ## 1.2.0
 
-- Integra o fluxo assíncrono `/sign-process-type` + `/task-status/<task_id>`.
+- Integra o fluxo assíncrono `/sign-process-type` + `/task-status-pose/<task_id>`.
 - Adiciona modo seleção automático para enviar texto selecionado sem depender do popup aberto.
 - Atualiza a URL configurável para representar a URL base do proxy/API.
 

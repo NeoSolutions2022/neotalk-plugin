@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NeoTalk Libras",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "description": "Traduza textos e áudios do navegador para Libras com avatar NeoTalk.",
   "permissions": [
     "activeTab",
@@ -43,5 +43,5 @@
       ]
     }
   ],
-  "version_name": "1.4.6 - preserva task_id em respostas 202"
+  "version_name": "1.4.7 - endpoint /task-status-pose/<task_id>"
 }
