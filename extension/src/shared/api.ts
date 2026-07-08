@@ -28,17 +28,41 @@ function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: stri
   };
 }
 
+function parseMaybeJson(text: string): NeoTalkApiResponse | string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+
+  try {
+    return JSON.parse(trimmed) as NeoTalkApiResponse;
+  } catch {
+    return trimmed;
+  }
+}
+
 function getTaskId(response: NeoTalkApiResponse | string): string | undefined {
-  if (typeof response === 'string') return response.trim() || undefined;
+  if (typeof response === 'string') {
+    const parsed = parseMaybeJson(response);
+    if (typeof parsed !== 'string') return getTaskId(parsed);
+    return parsed.trim() || undefined;
+  }
+
   const taskId = response.task_id ?? response.id ?? response.job_id ?? response.taskId;
-  return typeof taskId === 'string' && taskId.trim().length > 0 ? taskId.trim() : undefined;
+  if (typeof taskId === 'string' && taskId.trim().length > 0) return taskId.trim();
+  if (typeof taskId === 'number') return String(taskId);
+  return undefined;
+}
+
+function isTaskPending(response: NeoTalkApiResponse): boolean {
+  const status = String(response.status ?? response.state ?? '').toLowerCase();
+  return ['pending', 'queued', 'started', 'processing', 'running', 'in_progress', 'accepted'].includes(status);
 }
 
 async function readResponsePayload(response: Response): Promise<NeoTalkApiResponse | string> {
-  if (response.status === 202) return {};
+  if (response.status === 202) return { status: 'accepted' };
+  const text = await response.text();
+  if (!text.trim()) return '';
   const contentType = response.headers.get('content-type') ?? '';
-  if (contentType.includes('application/json')) return (await response.json()) as NeoTalkApiResponse;
-  return (await response.text()).trim();
+  return contentType.includes('application/json') ? (parseMaybeJson(text) as NeoTalkApiResponse | string) : parseMaybeJson(text);
 }
 
 async function sleep(milliseconds: number): Promise<void> {
@@ -55,21 +79,25 @@ async function pollTaskStatus(taskId: string, proxyUrl: string, headers: Headers
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
     await sleep(POLL_INTERVAL_MS);
+    await saveCaptionState({ status: `Consultando status da tradução... (${attempt + 1}/${MAX_POLL_ATTEMPTS})` });
+
     const response = await fetch(statusUrls[0], { method: 'GET', headers });
+    const payload = await readResponsePayload(response);
 
     if (response.status === 202) continue;
-    const payload = await readResponsePayload(response);
     if (!response.ok && response.status === 404 && statusUrls[1]) {
       const fallbackResponse = await fetch(statusUrls[1], { method: 'GET', headers });
-      if (fallbackResponse.status === 202) continue;
       const fallbackPayload = await readResponsePayload(fallbackResponse);
+      if (fallbackResponse.status === 202) continue;
       if (!fallbackResponse.ok) throw new Error(typeof fallbackPayload === 'string' ? fallbackPayload : String(fallbackPayload.error ?? fallbackPayload.message ?? MESSAGES.translationError));
       if (typeof fallbackPayload === 'string') throw new Error(fallbackPayload || MESSAGES.translationError);
       if (getFileUrl(fallbackPayload)) return fallbackPayload;
+      if (isTaskPending(fallbackPayload)) continue;
     }
     if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.error ?? payload.message ?? MESSAGES.translationError));
     if (typeof payload === 'string') throw new Error(payload || MESSAGES.translationError);
     if (getFileUrl(payload)) return payload;
+    if (isTaskPending(payload)) continue;
   }
 
   throw new Error('Tempo limite ao aguardar a tarefa de tradução.');

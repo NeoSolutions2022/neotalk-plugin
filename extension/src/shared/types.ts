@@ -36,6 +36,7 @@ export type NeoTalkApiResponse = {
   result?: NeoTalkApiResponse;
   message?: unknown;
   error?: unknown;
+  state?: unknown;
 };
 
 export type SubmitPhraseMessage = {

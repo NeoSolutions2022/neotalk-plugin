@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+
+- Corrige a leitura de `task_id` quando a resposta vem como texto JSON.
+- Garante polling explícito de status a cada 1 segundo por até 60 tentativas após o POST.
+- Exibe no estado da extensão cada tentativa de consulta da task.
+
 ## 1.4.0
 
 - Configura apenas a URL base e monta internamente `/sign-process-pose` e `/task-status-type/<task_id>`.
