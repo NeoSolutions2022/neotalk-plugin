@@ -5,9 +5,10 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.ts'],
+    files: ['extension/src/**/*.ts'],
     languageOptions: {
-      parserOptions: { project: './tsconfig.json' }
+      parserOptions: { project: './tsconfig.json' },
+      globals: { chrome: 'readonly' }
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off'

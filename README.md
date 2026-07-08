@@ -1,22 +1,55 @@
-# neotalk-plugin
+# NeoTalk Libras Chrome Extension
 
-Widget JavaScript/TypeScript para traduzir textos selecionados, fala do microfone e áudio compartilhado de aba para Libras usando a API NeoTalk por meio de um proxy interno seguro.
+Extensão Chrome Manifest V3 para traduzir texto selecionado, fala do microfone e tentativa de áudio da aba atual para Libras com avatar NeoTalk.
 
-## Ambiente
+## Arquitetura
 
-Configure as variáveis no servidor ou no Docker. A chave nunca deve ser exposta no bundle do navegador.
-
-```env
-NEOTALK_API_URL=https://neotalks-neotalk.t2wird.easypanel.host
-NEOTALK_API_KEY=<fornecida-em-build-ou-runtime>
-PORT=3000
+```txt
+extension/
+  manifest.json
+  src/background/service-worker.ts
+  src/content/content-script.ts
+  src/popup/popup.html
+  src/popup/popup.ts
+  src/popup/popup.css
+  src/options/options.html
+  src/options/options.ts
+  src/options/options.css
+  src/offscreen/offscreen.html
+  src/offscreen/offscreen.ts
+  src/shared/
 ```
 
-## Rotas
+## Segurança
 
-- `POST /api/neotalk/translate`: recebe `{ "frase": "texto" }`, valida o conteúdo e encaminha para `${NEOTALK_API_URL}/sign-process-pose` com o cabeçalho `x-api-key` no servidor.
-- `GET /api/neotalk/status/:id`: endpoint de compatibilidade para fluxos assíncronos/polling quando a API retorna um identificador de job.
+A extensão não contém `NEOTALK_API_KEY` e não deve chamar a API externa diretamente com chave privada. Configure uma URL de proxy/backend NeoTalk na tela de configurações. O proxy deve receber `{ "frase": "texto" }`, chamar a API externa no servidor e adicionar a chave privada com segurança.
 
-## Plugin
+URL padrão configurável:
 
-Após o build, sirva o script em `/plugin/neotalk-plugin.js` e injete-o na página onde o widget deve estar ativo.
+```txt
+https://api.neotalk.com/extension/sign-process-pose
+```
+
+## Desenvolvimento
+
+```bash
+npm install
+npm run typecheck
+npm run lint
+npm run build
+```
+
+## Carregar no Chrome
+
+1. Execute `npm run build` para gerar `extension/dist`.
+2. Abra `chrome://extensions`.
+3. Ative o "Modo do desenvolvedor".
+4. Clique em "Carregar sem compactação".
+5. Selecione a pasta `extension/` deste repositório.
+6. Abra "Configurações" na extensão e ajuste a URL do proxy NeoTalk, se necessário.
+
+## Limitações de navegador
+
+- Captura de áudio da aba só começa após clique explícito em “Ativar áudio da aba”.
+- `chrome.tabCapture`, documentos offscreen e Web Speech API dependem de suporte/permissões do Chrome.
+- A Web Speech API não permite transcrição silenciosa garantida de todo áudio interno; quando indisponível, a extensão mostra a mensagem de fallback em português.

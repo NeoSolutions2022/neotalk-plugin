@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Configurações NeoTalk</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="neotalk-extension-options-page">
+      <h1>Configurações NeoTalk</h1>
+      <form id="optionsForm">
+        <label for="proxyUrl">URL do proxy NeoTalk</label>
+        <input id="proxyUrl" name="proxyUrl" type="url" required placeholder="https://api.neotalk.com/extension/sign-process-pose" />
+        <label><input id="autoWelcomeEnabled" type="checkbox" /> Enviar boas-vindas automaticamente</label>
+        <label><input id="captionsEnabled" type="checkbox" /> Exibir legendas</label>
+        <label><input id="avatarExpanded" type="checkbox" /> Avatar expandido</label>
+        <p class="neotalk-extension-warning">Não informe chaves privadas nesta extensão. A chave da API deve ficar somente no backend/proxy NeoTalk.</p>
+        <button type="submit">Salvar configurações</button>
+        <div id="status" aria-live="polite"></div>
+      </form>
+    </main>
+    <script type="module" src="../../dist/options/options.js"></script>
+  </body>
+</html>
