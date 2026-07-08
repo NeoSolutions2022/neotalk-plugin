@@ -49,7 +49,7 @@ async function sendWelcomeOnce(): Promise<void> {
   const preferences = await getPreferences();
   if (!preferences.autoWelcomeEnabled || await wasWelcomeSent()) return;
   await markWelcomeSent();
-  await sendRuntimeMessage({ type: 'NEOTALK_SUBMIT_PHRASE', frase: 'Seja bem-vindo!' /* também atende ao fluxo inicial de boas-vindas ao abrir a extensão */, source: 'welcome' });
+  await sendRuntimeMessage({ type: 'NEOTALK_SUBMIT_PHRASE', frase: 'Seja bem-vindo' /* também atende ao fluxo inicial de boas-vindas ao abrir a extensão */, source: 'welcome' });
 }
 
 document.querySelector('#translateButton')?.addEventListener('click', () => void submitManualPhrase());

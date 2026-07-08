@@ -11,15 +11,28 @@ function getFileUrl(response: NeoTalkApiResponse): string | undefined {
   return response.file_url ?? response.fileUrl ?? response.url ?? response.video_url ?? response.result?.file_url ?? response.result?.fileUrl;
 }
 
-function normalizeApiBaseUrl(configuredUrl: string): string {
-  return configuredUrl.replace(/\/+$/, '').replace(/\/sign-process-type$/, '').replace(/\/task-status-type$/, '');
+function normalizeSubmitUrl(configuredUrl: string): string {
+  return configuredUrl.replace(/\/+$/, '');
 }
 
-function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: string; statusUrl?: string } {
-  const apiBaseUrl = normalizeApiBaseUrl(configuredUrl);
+function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: string; statusUrls: string[] } {
+  const submitUrl = normalizeSubmitUrl(configuredUrl);
+  const url = new URL(submitUrl);
+  if (!taskId) return { submitUrl, statusUrls: [] };
+
+  const encodedTaskId = encodeURIComponent(taskId);
+  const primaryStatusPath = url.pathname.includes('sign-process-pose')
+    ? url.pathname.replace(/sign-process-pose$/, 'task-status-pose')
+    : url.pathname.replace(/sign-process-type$/, 'task-status-type');
+  const fallbackStatusPath = url.pathname.includes('sign-process-pose')
+    ? url.pathname.replace(/sign-process-pose$/, 'task-status-type')
+    : '';
+
   return {
-    submitUrl: `${apiBaseUrl}/sign-process-type`,
-    statusUrl: taskId ? `${apiBaseUrl}/task-status-type/${encodeURIComponent(taskId)}` : undefined
+    submitUrl,
+    statusUrls: [primaryStatusPath, fallbackStatusPath]
+      .filter(Boolean)
+      .map((statusPath) => `${url.origin}${statusPath}/${encodedTaskId}`)
   };
 }
 
@@ -45,15 +58,23 @@ function authHeaders(developerMode: boolean, apiKey: string): HeadersInit {
 }
 
 async function pollTaskStatus(taskId: string, proxyUrl: string, headers: HeadersInit): Promise<NeoTalkApiResponse> {
-  const { statusUrl } = buildApiUrls(proxyUrl, taskId);
-  if (!statusUrl) throw new Error('Task status URL indisponível.');
+  const { statusUrls } = buildApiUrls(proxyUrl, taskId);
+  if (statusUrls.length === 0) throw new Error('Task status URL indisponível.');
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
     await sleep(POLL_INTERVAL_MS);
-    const response = await fetch(statusUrl, { method: 'GET', headers });
+    const response = await fetch(statusUrls[0], { method: 'GET', headers });
 
     if (response.status === 202) continue;
     const payload = await readResponsePayload(response);
+    if (!response.ok && response.status === 404 && statusUrls[1]) {
+      const fallbackResponse = await fetch(statusUrls[1], { method: 'GET', headers });
+      if (fallbackResponse.status === 202) continue;
+      const fallbackPayload = await readResponsePayload(fallbackResponse);
+      if (!fallbackResponse.ok) throw new Error(typeof fallbackPayload === 'string' ? fallbackPayload : String(fallbackPayload.error ?? fallbackPayload.message ?? MESSAGES.translationError));
+      if (typeof fallbackPayload === 'string') throw new Error(fallbackPayload || MESSAGES.translationError);
+      if (getFileUrl(fallbackPayload)) return fallbackPayload;
+    }
     if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.error ?? payload.message ?? MESSAGES.translationError));
     if (typeof payload === 'string') throw new Error(payload || MESSAGES.translationError);
     if (getFileUrl(payload)) return payload;
