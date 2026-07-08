@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.2
+
+- Inicia a primeira consulta de status imediatamente após receber `task_id`.
+- Mantém novas consultas a cada 1 segundo até receber `file_url` ou atingir 60 tentativas.
+
 ## 1.4.1
 
 - Corrige a leitura de `task_id` quando a resposta vem como texto JSON.

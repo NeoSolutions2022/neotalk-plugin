@@ -1,6 +1,6 @@
 # NeoTalk Libras Chrome Extension
 
-**Versão atual:** 1.4.1
+**Versão atual:** 1.4.2
 
 Extensão Chrome Manifest V3 para traduzir texto selecionado, fala do microfone e tentativa de áudio da aba atual para Libras com avatar NeoTalk.
 
@@ -32,7 +32,7 @@ URL padrão configurável:
 https://infra-neotalk-api.k3p3ex.easypanel.host
 ```
 
-A extensão pede apenas a URL base nas configurações, envia `FormData` com o campo `frase` para `/sign-process-pose`, lê o `task_id` retornado e consulta `/task-status-type/<task_id>` a cada 1 segundo por até 1 minuto, até receber `file_url`.
+A extensão pede apenas a URL base nas configurações, envia `FormData` com o campo `frase` para `/sign-process-pose`, lê o `task_id` retornado e consulta imediatamente `/task-status-type/<task_id>` e repete a cada 1 segundo por até 1 minuto, até receber `file_url`.
 
 ## Desenvolvimento
 

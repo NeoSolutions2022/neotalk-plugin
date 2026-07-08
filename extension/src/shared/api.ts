@@ -78,26 +78,30 @@ async function pollTaskStatus(taskId: string, proxyUrl: string, headers: Headers
   if (statusUrls.length === 0) throw new Error('Task status URL indisponível.');
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
-    await sleep(POLL_INTERVAL_MS);
     await saveCaptionState({ status: `Consultando status da tradução... (${attempt + 1}/${MAX_POLL_ATTEMPTS})` });
 
     const response = await fetch(statusUrls[0], { method: 'GET', headers });
     const payload = await readResponsePayload(response);
 
-    if (response.status === 202) continue;
-    if (!response.ok && response.status === 404 && statusUrls[1]) {
-      const fallbackResponse = await fetch(statusUrls[1], { method: 'GET', headers });
-      const fallbackPayload = await readResponsePayload(fallbackResponse);
-      if (fallbackResponse.status === 202) continue;
-      if (!fallbackResponse.ok) throw new Error(typeof fallbackPayload === 'string' ? fallbackPayload : String(fallbackPayload.error ?? fallbackPayload.message ?? MESSAGES.translationError));
-      if (typeof fallbackPayload === 'string') throw new Error(fallbackPayload || MESSAGES.translationError);
-      if (getFileUrl(fallbackPayload)) return fallbackPayload;
-      if (isTaskPending(fallbackPayload)) continue;
+    if (response.status !== 202) {
+      if (!response.ok && response.status === 404 && statusUrls[1]) {
+        const fallbackResponse = await fetch(statusUrls[1], { method: 'GET', headers });
+        const fallbackPayload = await readResponsePayload(fallbackResponse);
+        if (fallbackResponse.status !== 202) {
+          if (!fallbackResponse.ok) throw new Error(typeof fallbackPayload === 'string' ? fallbackPayload : String(fallbackPayload.error ?? fallbackPayload.message ?? MESSAGES.translationError));
+          if (typeof fallbackPayload === 'string') throw new Error(fallbackPayload || MESSAGES.translationError);
+          if (getFileUrl(fallbackPayload)) return fallbackPayload;
+          if (!isTaskPending(fallbackPayload)) throw new Error(MESSAGES.translationError);
+        }
+      } else {
+        if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.error ?? payload.message ?? MESSAGES.translationError));
+        if (typeof payload === 'string') throw new Error(payload || MESSAGES.translationError);
+        if (getFileUrl(payload)) return payload;
+        if (!isTaskPending(payload)) throw new Error(MESSAGES.translationError);
+      }
     }
-    if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.error ?? payload.message ?? MESSAGES.translationError));
-    if (typeof payload === 'string') throw new Error(payload || MESSAGES.translationError);
-    if (getFileUrl(payload)) return payload;
-    if (isTaskPending(payload)) continue;
+
+    if (attempt < MAX_POLL_ATTEMPTS - 1) await sleep(POLL_INTERVAL_MS);
   }
 
   throw new Error('Tempo limite ao aguardar a tarefa de tradução.');
