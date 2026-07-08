@@ -1,0 +1,13 @@
+services:
+  neotalk-plugin:
+    build:
+      context: .
+      args:
+        NEOTALK_API_URL: ${NEOTALK_API_URL}
+        NEOTALK_API_KEY: ${NEOTALK_API_KEY}
+    environment:
+      NEOTALK_API_URL: ${NEOTALK_API_URL}
+      NEOTALK_API_KEY: ${NEOTALK_API_KEY}
+      PORT: ${PORT:-3000}
+    ports:
+      - "${PORT:-3000}:3000"

@@ -1,0 +1,23 @@
+{
+  "name": "neotalk-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "@types/express": "^4.17.21",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.7.0",
+    "@types/node": "^20.14.10",
+    "eslint": "^9.7.0",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.0.0"
+  }
+}
