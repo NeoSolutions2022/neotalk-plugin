@@ -1,10 +1,18 @@
 {
   "manifest_version": 3,
   "name": "NeoTalk Libras",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Traduza textos e áudios do navegador para Libras com avatar NeoTalk.",
-  "permissions": ["activeTab", "scripting", "storage", "tabCapture", "offscreen"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabCapture",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "dist/background/service-worker.js",
     "type": "module"
@@ -16,15 +24,24 @@
   "options_page": "src/options/options.html",
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["dist/content/content-script.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "dist/content/content-script.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/offscreen/offscreen.html"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "src/offscreen/offscreen.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
-  ]
+  ],
+  "version_name": "1.1.0 - melhorias de seleção, FormData e UI responsiva"
 }
