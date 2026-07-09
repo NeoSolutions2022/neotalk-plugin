@@ -1,0 +1,143 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, Arial, Helvetica, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  width: min(420px, 100vw);
+  min-width: 320px;
+  margin: 0;
+  background: radial-gradient(circle at top left, #dbeafe 0, #f8fafc 42%, #ffffff 100%);
+  color: #0f172a;
+}
+
+.neotalk-extension-popup {
+  display: grid;
+  gap: 12px;
+  padding: clamp(14px, 4vw, 20px);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(20px, 6vw, 24px);
+  line-height: 1.1;
+  letter-spacing: -.02em;
+}
+
+.neotalk-extension-avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 180px;
+  height: clamp(210px, 58vw, 260px);
+  overflow: hidden;
+  border: 1px solid rgba(20, 71, 230, .16);
+  border-radius: 20px;
+  background: linear-gradient(145deg, #e0e7ff, #f1f5f9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 16px 36px rgba(15, 23, 42, .14);
+  transition: height .2s ease, box-shadow .2s ease;
+}
+
+.neotalk-extension-avatar.expanded {
+  height: clamp(260px, 74vw, 340px);
+  min-height: 180px;
+}
+
+.neotalk-extension-video {
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  display: block;
+  background: #000000;
+}
+
+.neotalk-extension-placeholder {
+  max-width: 240px;
+  padding: 16px;
+  color: #334155;
+  text-align: center;
+  font-size: 14px;
+}
+
+.neotalk-extension-label {
+  display: block;
+  margin: 2px 0 -4px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.neotalk-extension-caption {
+  min-height: 48px;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: rgba(255,255,255,.92);
+  color: #0f172a;
+  line-height: 1.45;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .06);
+}
+
+.neotalk-extension-input {
+  width: 100%;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid #94a3b8;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #0f172a;
+  resize: vertical;
+  font: inherit;
+}
+
+.neotalk-extension-button {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #1447e6, #2563eb);
+  color: #ffffff;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, .22);
+}
+
+.neotalk-extension-button.secondary {
+  background: linear-gradient(135deg, #0f172a, #334155);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, .16);
+}
+
+.neotalk-extension-button:hover { filter: brightness(1.04); }
+.neotalk-extension-button:active { transform: translateY(1px); }
+
+.neotalk-extension-options {
+  justify-self: start;
+  color: #1447e6;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.neotalk-extension-options:hover { text-decoration: underline; }
+
+.neotalk-extension-status {
+  min-height: 20px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+button:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 3px solid #facc15;
+  outline-offset: 2px;
+}
+
+@media (max-width: 340px) {
+  body { min-width: 280px; }
+  .neotalk-extension-popup { padding: 12px; }
+}

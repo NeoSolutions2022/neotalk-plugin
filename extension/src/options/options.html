@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Configurações NeoTalk</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="neotalk-extension-options-page">
+      <h1>Configurações NeoTalk</h1>
+      <form id="optionsForm">
+        <label for="proxyUrl">URL base do proxy NeoTalk</label>
+        <input id="proxyUrl" name="proxyUrl" type="url" required placeholder="https://infra-neotalk-api.k3p3ex.easypanel.host" />
+        <label><input id="autoWelcomeEnabled" type="checkbox" /> Enviar boas-vindas automaticamente</label>
+        <label><input id="captionsEnabled" type="checkbox" /> Exibir legendas</label>
+        <label><input id="avatarExpanded" type="checkbox" /> Avatar expandido</label>
+        <label><input id="selectionModeEnabled" type="checkbox" /> Modo seleção automático</label>
+        <label><input id="developerMode" type="checkbox" /> Modo desenvolvedor</label>
+        <label for="apiKey">Chave da API (somente desenvolvimento)</label>
+        <input id="apiKey" name="apiKey" type="password" autocomplete="off" placeholder="Não use em produção" />
+        <p class="neotalk-extension-warning">A chave da API dentro da extensão é insegura e pode ser vista por usuários. Use apenas em desenvolvimento; em produção, configure um proxy NeoTalk.</p>
+        <button type="submit">Salvar configurações</button>
+        <button id="toggleDeveloperErrors" type="button" class="secondary">Exibir erros do desenvolvedor</button>
+        <button id="clearDeveloperErrors" type="button" class="secondary">Limpar erros do desenvolvedor</button>
+        <pre id="developerErrors" class="neotalk-extension-errors" hidden></pre>
+        <div id="status" aria-live="polite"></div>
+      </form>
+    </main>
+    <script type="module" src="../../dist/options/options.js"></script>
+  </body>
+</html>

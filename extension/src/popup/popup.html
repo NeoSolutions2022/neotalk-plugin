@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NeoTalk Libras</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="neotalk-extension-popup" aria-label="NeoTalk Libras">
+      <h1>NeoTalk Libras</h1>
+      <section id="avatar-container" class="neotalk-extension-avatar expanded" aria-label="Avatar em Libras">
+        <video id="avatar-video" class="neotalk-extension-video" autoplay muted loop controls playsinline></video>
+        <p id="avatar-placeholder" class="neotalk-extension-placeholder">Avatar aguardando tradução.</p>
+      </section>
+      <label class="neotalk-extension-label" for="manualText">Legenda</label>
+      <div id="caption" class="neotalk-extension-caption" aria-live="polite">Digite ou selecione um texto para traduzir.</div>
+      <textarea id="manualText" class="neotalk-extension-input" placeholder="Digite ou selecione um texto para traduzir." aria-label="Texto para traduzir"></textarea>
+      <button id="translateButton" class="neotalk-extension-button" type="button">Traduzir para Libras</button>
+      <button id="microphoneButton" class="neotalk-extension-button secondary" type="button">Ativar microfone</button>
+      <button id="tabAudioButton" class="neotalk-extension-button secondary" type="button">Ativar áudio da aba</button>
+      <button id="selectionModeButton" class="neotalk-extension-button secondary" type="button">Ativar modo seleção</button>
+      <a class="neotalk-extension-options" href="../options/options.html" target="_blank" rel="noreferrer">Configurações</a>
+      <div id="status" class="neotalk-extension-status" aria-live="polite"></div>
+    </main>
+    <script type="module" src="../../dist/popup/popup.js"></script>
+  </body>
+</html>
