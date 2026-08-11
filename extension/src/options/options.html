@@ -20,6 +20,11 @@
         <label for="apiKey">Chave da API (somente desenvolvimento)</label>
         <input id="apiKey" name="apiKey" type="password" autocomplete="off" placeholder="Não use em produção" />
         <p class="neotalk-extension-warning">A chave da API dentro da extensão é insegura e pode ser vista por usuários. Use apenas em desenvolvimento; em produção, configure um proxy NeoTalk.</p>
+
+        <label>Permissão de microfone</label>
+        <button id="microphonePermissionButton" type="button" class="secondary">Autorizar microfone</button>
+        <p id="microphonePermissionStatus" class="neotalk-extension-warning"></p>
+
         <button type="submit">Salvar configurações</button>
         <button id="toggleDeveloperErrors" type="button" class="secondary">Exibir erros do desenvolvedor</button>
         <button id="clearDeveloperErrors" type="button" class="secondary">Limpar erros do desenvolvedor</button>

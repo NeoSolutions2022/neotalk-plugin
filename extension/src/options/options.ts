@@ -13,6 +13,8 @@ const toggleDeveloperErrors = document.querySelector<HTMLButtonElement>('#toggle
 const clearDeveloperErrorsButton = document.querySelector<HTMLButtonElement>('#clearDeveloperErrors')!;
 const developerErrors = document.querySelector<HTMLPreElement>('#developerErrors')!;
 const status = document.querySelector<HTMLElement>('#status')!;
+const microphonePermissionButton = document.querySelector<HTMLButtonElement>('#microphonePermissionButton')!;
+const microphonePermissionStatus = document.querySelector<HTMLElement>('#microphonePermissionStatus')!;
 
 function formatDeveloperErrors(errors: DeveloperError[]): string {
   if (errors.length === 0) return 'Nenhum erro técnico registrado.';
@@ -71,6 +73,20 @@ toggleDeveloperErrors.addEventListener('click', () => {
 
 clearDeveloperErrorsButton.addEventListener('click', () => {
   void clearDeveloperErrors().then(renderDeveloperErrors);
+});
+
+microphonePermissionButton.addEventListener('click', () => {
+  void (async () => {
+    microphonePermissionStatus.textContent = 'Solicitando permissão...';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      microphonePermissionStatus.textContent = 'Microfone autorizado com sucesso! Você já pode usar o botão de microfone na extensão.';
+    } catch (error) {
+      console.warn('NeoTalk: falha ao autorizar microfone.', error);
+      microphonePermissionStatus.textContent = 'Não foi possível autorizar o microfone. Verifique as permissões do navegador e tente novamente.';
+    }
+  })();
 });
 
 void loadOptions();

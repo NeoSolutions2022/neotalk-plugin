@@ -3,8 +3,6 @@ import { renderCaptionState } from '../shared/captions.js';
 import { MESSAGES } from '../shared/messages.js';
 import { CAPTION_STATE_KEY, getCaptionState, getPreferences, getSelectedText, markWelcomeSent, saveCaptionState, savePreferences, wasWelcomeSent } from '../shared/storage.js';
 import type { RuntimeMessage } from '../shared/types.js';
-import type { SpeechRecognitionResultEvent } from '../shared/speech.js';
-
 
 const captionElement = document.querySelector<HTMLElement>('#caption')!;
 const statusElement = document.querySelector<HTMLElement>('#status')!;
@@ -12,8 +10,10 @@ const videoElement = document.querySelector<HTMLVideoElement>('#avatar-video')!;
 const placeholderElement = document.querySelector<HTMLElement>('#avatar-placeholder')!;
 const manualText = document.querySelector<HTMLTextAreaElement>('#manualText')!;
 const tabAudioButton = document.querySelector<HTMLButtonElement>('#tabAudioButton')!;
+const microphoneButton = document.querySelector<HTMLButtonElement>('#microphoneButton')!;
 const selectionModeButton = document.querySelector<HTMLButtonElement>('#selectionModeButton')!;
 let tabAudioEnabled = false;
+let isMicrophoneActive = false;
 
 async function refreshUi(): Promise<void> {
   const state = await getCaptionState();
@@ -53,25 +53,31 @@ async function sendWelcomeOnce(): Promise<void> {
 }
 
 document.querySelector('#translateButton')?.addEventListener('click', () => void submitManualPhrase());
-document.querySelector('#microphoneButton')?.addEventListener('click', () => {
-  const SpeechRecognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    void saveCaptionState({ status: '', error: MESSAGES.speechUnsupported }).then(refreshUi);
-    return;
-  }
 
-  const recognition = new SpeechRecognition();
-  recognition.lang = 'pt-BR';
-  recognition.onstart = () => void saveCaptionState({ status: MESSAGES.listening, error: undefined }).then(refreshUi);
-  recognition.onresult = (event: SpeechRecognitionResultEvent) => {
-    const texto = event.results[0][0].transcript;
-    manualText.value = texto;
-    void saveCaptionState({ status: MESSAGES.transcribing, caption: texto, error: undefined })
-      .then(refreshUi)
-      .then(() => sendRuntimeMessage({ type: 'NEOTALK_SUBMIT_PHRASE', frase: texto, source: 'microphone' }));
-  };
-  recognition.onerror = () => void saveCaptionState({ status: '', error: MESSAGES.speechUnsupported }).then(refreshUi);
-  recognition.start();
+async function ensureMicrophonePermission(): Promise<boolean> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop()); // só precisávamos do prompt, não do stream em si
+    return true;
+  } catch (error) {
+    console.warn('NeoTalk: permissão de microfone negada ou indisponível.', error);
+    await saveCaptionState({ status: '', error: MESSAGES.speechUnsupported });
+    await refreshUi();
+    return false;
+  }
+}
+
+microphoneButton.addEventListener('click', () => {
+  void (async () => {
+    if (!isMicrophoneActive) {
+      const granted = await ensureMicrophonePermission();
+      if (!granted) return; // não liga o toggle se a permissão foi negada
+    }
+
+    isMicrophoneActive = !isMicrophoneActive;
+    microphoneButton.textContent = isMicrophoneActive ? 'Parar microfone' : 'Ativar microfone';
+    void sendRuntimeMessage({ type: isMicrophoneActive ? 'NEOTALK_START_MICROPHONE' : 'NEOTALK_STOP_MICROPHONE' });
+  })();
 });
 
 tabAudioButton.addEventListener('click', () => {
