@@ -4,8 +4,9 @@ type NeoTalkSelectionMessage = {
   source: 'selection';
 };
 
-type SelectionPreferences = { selectionModeEnabled?: boolean };
+type SelectionPreferences = { selectionModeEnabled?: boolean; autoSubmitSelection?: boolean; captionsEnabled?: boolean; avatarExpanded?: boolean };
 type CaptionState = { caption?: string; status?: string; fileUrl?: string; error?: string };
+type AudioCaptureState = { phase?: string; mode?: 'tab' | 'microphone'; message?: string };
 
 const HOST_ID = 'neotalk-extension-selection-host';
 const TOOLTIP_CLASS = 'neotalk-extension-tooltip';
@@ -13,6 +14,7 @@ const PANEL_CLASS = 'neotalk-extension-panel';
 let selectedPhrase = '';
 let hideTimer: number | undefined;
 let selectionModeEnabled = true;
+let autoSubmitSelection = false;
 let lastAutoSubmittedPhrase = '';
 let isDraggingPanel = false;
 let dragOffsetX = 0;
@@ -122,6 +124,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
       }
       .neotalk-extension-panel-body { display: grid; gap: 8px; padding: 12px; }
       .neotalk-extension-avatar-box { min-height: 150px; border-radius: 14px; overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center; }
+      .neotalk-extension-avatar-box:not(.expanded) { min-height: 100px; max-height: 130px; }
       #neotalk-extension-avatar-video { width: 100%; height: auto; max-height: 210px; display: block; background: #000; }
       #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #e2e8f0; text-align: center; font-size: 13px; }
       #neotalk-extension-caption { min-height: 34px; padding: 8px; border-radius: 10px; background: #f8fafc; border: 1px solid #cbd5e1; color: #0f172a; line-height: 1.35; }
@@ -239,6 +242,20 @@ function updateOverlayState(state: CaptionState): void {
   }
 }
 
+function applyPreferences(preferences?: SelectionPreferences): void {
+  selectionModeEnabled = preferences?.selectionModeEnabled ?? true;
+  autoSubmitSelection = preferences?.autoSubmitSelection ?? false;
+  selectionUi.caption.hidden = preferences?.captionsEnabled === false;
+  selectionUi.video.parentElement?.classList.toggle('expanded', preferences?.avatarExpanded ?? true);
+  updatePanelVisibility();
+}
+
+function updateAudioCaptureState(state?: AudioCaptureState): void {
+  isTabAudioActive = state?.mode === 'tab' && !['inactive', 'error'].includes(state.phase ?? 'inactive');
+  selectionUi.tabAudioButton.disabled = ['starting', 'loading-model', 'stopping'].includes(state?.phase ?? '');
+  updateTabAudioButton();
+}
+
 function loadOverlayState(): void {
   chrome.storage.local.get('neotalkCaptionState', (result) => {
     updateOverlayState((result.neotalkCaptionState as CaptionState | undefined) ?? {});
@@ -248,9 +265,9 @@ function loadOverlayState(): void {
 function loadSelectionModePreference(): void {
   chrome.storage.sync.get('neotalkPreferences', (result) => {
     const preferences = result.neotalkPreferences as SelectionPreferences | undefined;
-    selectionModeEnabled = preferences?.selectionModeEnabled ?? true;
-    updatePanelVisibility();
+    applyPreferences(preferences);
   });
+  chrome.storage.local.get('neotalkAudioCaptureState', (result) => updateAudioCaptureState(result.neotalkAudioCaptureState as AudioCaptureState | undefined));
 }
 
 loadSelectionModePreference();
@@ -258,12 +275,12 @@ loadOverlayState();
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'sync' && changes.neotalkPreferences) {
     const preferences = changes.neotalkPreferences.newValue as SelectionPreferences | undefined;
-    selectionModeEnabled = preferences?.selectionModeEnabled ?? true;
-    updatePanelVisibility();
+    applyPreferences(preferences);
   }
   if (areaName === 'local' && changes.neotalkCaptionState) {
     updateOverlayState((changes.neotalkCaptionState.newValue as CaptionState | undefined) ?? {});
   }
+  if (areaName === 'local' && changes.neotalkAudioCaptureState) updateAudioCaptureState(changes.neotalkAudioCaptureState.newValue as AudioCaptureState | undefined);
 });
 
 function hideTooltip(): void {
@@ -277,10 +294,16 @@ function getSelectedText(): string {
 function receiveSelectedPhrase(frase: string): void {
   selectedPhrase = frase;
   selectionUi.textarea.value = frase;
-  if (selectionModeEnabled && lastAutoSubmittedPhrase !== frase) {
+  if (selectionModeEnabled && autoSubmitSelection && lastAutoSubmittedPhrase !== frase) {
     lastAutoSubmittedPhrase = frase;
     sendSelectedPhrase(frase);
   }
+}
+
+function selectionIsSensitive(selection: Selection): boolean {
+  const node = selection.anchorNode;
+  const element = (node instanceof Element ? node : node?.parentElement)?.closest('input, textarea, [contenteditable="true"], [contenteditable=""]');
+  return Boolean(element);
 }
 
 function positionTooltipFromSelection(): void {
@@ -288,7 +311,7 @@ function positionTooltipFromSelection(): void {
   const selection = window.getSelection();
   const frase = getSelectedText();
 
-  if (!frase || frase.trim().length === 0 || !selection || selection.rangeCount === 0) {
+  if (!frase || frase.trim().length === 0 || !selection || selection.rangeCount === 0 || selectionIsSensitive(selection)) {
     hideTooltip();
     return;
   }
@@ -346,11 +369,10 @@ function updateTabAudioButton(): void {
   }
 }
 selectionUi.tabAudioButton.addEventListener('click', () => {
-  isTabAudioActive = !isTabAudioActive;
-  updateTabAudioButton();
-  void chrome.runtime.sendMessage({
-    type: isTabAudioActive ? 'NEOTALK_START_TAB_AUDIO' : 'NEOTALK_STOP_TAB_AUDIO'
-  });
+  selectionUi.tabAudioButton.disabled = true;
+  void chrome.runtime.sendMessage({ type: isTabAudioActive ? 'NEOTALK_STOP_TAB_AUDIO' : 'NEOTALK_START_TAB_AUDIO' }).then((response: { ok?: boolean; error?: string }) => {
+    if (!response?.ok && response?.error) selectionUi.status.textContent = response.error;
+  }).finally(() => { selectionUi.tabAudioButton.disabled = false; });
 });
 
 selectionUi.header.addEventListener('mousedown', (event) => {

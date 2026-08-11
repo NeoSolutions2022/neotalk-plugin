@@ -1,4 +1,5 @@
-import type { CaptionState, DeveloperError, ExtensionPreferences } from './types.js';
+import type { AudioCaptureState, CaptionState, DeveloperError, ExtensionPreferences } from './types.js';
+import { getExtensionApi, getExtensionStorage } from './extension-api.js';
 
 export const DEFAULT_PROXY_URL = 'https://infra-neotalk-api.k3p3ex.easypanel.host';
 export const DEFAULT_PREFERENCES: ExtensionPreferences = {
@@ -8,7 +9,8 @@ export const DEFAULT_PREFERENCES: ExtensionPreferences = {
   avatarExpanded: true,
   developerMode: false,
   apiKey: '',
-  selectionModeEnabled: true
+  selectionModeEnabled: true,
+  autoSubmitSelection: false
 };
 
 const PREFERENCES_KEY = 'neotalkPreferences';
@@ -16,69 +18,110 @@ const CAPTION_STATE_KEY = 'neotalkCaptionState';
 const WELCOME_SENT_KEY = 'neotalkWelcomeSent';
 const SELECTED_TEXT_KEY = 'neotalkSelectedText';
 const DEVELOPER_ERRORS_KEY = 'neotalkDeveloperErrors';
+const API_KEY_KEY = 'neotalkDeveloperApiKey';
+const AUDIO_CAPTURE_STATE_KEY = 'neotalkAudioCaptureState';
+const TRANSCRIPT_KEY = 'neotalkSessionTranscript';
 
 export async function getPreferences(): Promise<ExtensionPreferences> {
-  const result = await chrome.storage.sync.get(PREFERENCES_KEY);
-  return { ...DEFAULT_PREFERENCES, ...(result[PREFERENCES_KEY] as Partial<ExtensionPreferences> | undefined) };
+  const api = getExtensionApi();
+  const result = await api.storage.sync.get(PREFERENCES_KEY);
+  const stored = result[PREFERENCES_KEY] as Partial<ExtensionPreferences> | undefined;
+  const secret = await getExtensionStorage().get(API_KEY_KEY);
+  return { ...DEFAULT_PREFERENCES, ...stored, apiKey: typeof secret[API_KEY_KEY] === 'string' ? secret[API_KEY_KEY] : '' };
 }
 
 export async function savePreferences(preferences: ExtensionPreferences): Promise<void> {
-  await chrome.storage.sync.set({ [PREFERENCES_KEY]: preferences });
+  const { apiKey, ...syncPreferences } = preferences;
+  await Promise.all([
+    getExtensionApi().storage.sync.set({ [PREFERENCES_KEY]: syncPreferences }),
+    getExtensionStorage().set({ [API_KEY_KEY]: apiKey })
+  ]);
+}
+
+export async function migrateStoredApiKey(): Promise<void> {
+  const api = getExtensionApi();
+  const result = await api.storage.sync.get(PREFERENCES_KEY);
+  const stored = result[PREFERENCES_KEY] as Partial<ExtensionPreferences> | undefined;
+  if (!stored || typeof stored.apiKey !== 'string') return;
+  await getExtensionStorage().set({ [API_KEY_KEY]: stored.apiKey });
+  const { apiKey: _removed, ...safePreferences } = stored;
+  void _removed;
+  await api.storage.sync.set({ [PREFERENCES_KEY]: safePreferences });
+}
+
+export async function getAudioCaptureState(): Promise<AudioCaptureState> {
+  const result = await getExtensionStorage().get(AUDIO_CAPTURE_STATE_KEY);
+  return (result[AUDIO_CAPTURE_STATE_KEY] as AudioCaptureState | undefined) ?? { phase: 'inactive', updatedAt: Date.now() };
+}
+
+export async function saveAudioCaptureState(state: Omit<AudioCaptureState, 'updatedAt'>): Promise<void> {
+  await getExtensionStorage().set({ [AUDIO_CAPTURE_STATE_KEY]: { ...state, updatedAt: Date.now() } });
+}
+
+export async function saveSessionTranscript(transcript: string): Promise<void> {
+  await getExtensionStorage().set({ [TRANSCRIPT_KEY]: transcript });
+}
+
+export async function getSessionTranscript(): Promise<string> {
+  const result = await getExtensionStorage().get(TRANSCRIPT_KEY);
+  return typeof result[TRANSCRIPT_KEY] === 'string' ? result[TRANSCRIPT_KEY] : '';
 }
 
 export async function getCaptionState(): Promise<CaptionState> {
-  const result = await chrome.storage.local.get(CAPTION_STATE_KEY);
+  const result = await getExtensionStorage().get(CAPTION_STATE_KEY);
   return (result[CAPTION_STATE_KEY] as CaptionState | undefined) ?? { caption: '', status: '', updatedAt: Date.now() };
 }
 
 export async function saveCaptionState(state: Partial<CaptionState>): Promise<void> {
   const current = await getCaptionState();
-  await chrome.storage.local.set({ [CAPTION_STATE_KEY]: { ...current, ...state, updatedAt: Date.now() } });
+  await getExtensionStorage().set({ [CAPTION_STATE_KEY]: { ...current, ...state, updatedAt: Date.now() } });
 }
 
 export async function wasWelcomeSent(): Promise<boolean> {
-  if (chrome.storage.session) {
-    const result = await chrome.storage.session.get(WELCOME_SENT_KEY);
+  const api = getExtensionApi();
+  if (api.storage.session) {
+    const result = await api.storage.session.get(WELCOME_SENT_KEY);
     return Boolean(result[WELCOME_SENT_KEY]);
   }
-  const result = await chrome.storage.local.get(WELCOME_SENT_KEY);
+  const result = await getExtensionStorage().get(WELCOME_SENT_KEY);
   return Boolean(result[WELCOME_SENT_KEY]);
 }
 
 export async function markWelcomeSent(): Promise<void> {
-  if (chrome.storage.session) {
-    await chrome.storage.session.set({ [WELCOME_SENT_KEY]: true });
+  const api = getExtensionApi();
+  if (api.storage.session) {
+    await api.storage.session.set({ [WELCOME_SENT_KEY]: true });
     return;
   }
-  await chrome.storage.local.set({ [WELCOME_SENT_KEY]: true });
+  await getExtensionStorage().set({ [WELCOME_SENT_KEY]: true });
 }
 
 export async function saveSelectedText(frase: string): Promise<void> {
-  await chrome.storage.local.set({ [SELECTED_TEXT_KEY]: frase });
+  await getExtensionStorage().set({ [SELECTED_TEXT_KEY]: frase });
 }
 
 export async function getSelectedText(): Promise<string> {
-  const result = await chrome.storage.local.get(SELECTED_TEXT_KEY);
+  const result = await getExtensionStorage().get(SELECTED_TEXT_KEY);
   return typeof result[SELECTED_TEXT_KEY] === 'string' ? result[SELECTED_TEXT_KEY] : '';
 }
 
 export async function addDeveloperError(message: string, detail?: unknown): Promise<void> {
-  const result = await chrome.storage.local.get(DEVELOPER_ERRORS_KEY);
+  const storage = getExtensionStorage();
+  const result = await storage.get(DEVELOPER_ERRORS_KEY);
   const errors = (result[DEVELOPER_ERRORS_KEY] as DeveloperError[] | undefined) ?? [];
   const normalizedDetail = detail instanceof Error ? detail.message : typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : undefined;
-  await chrome.storage.local.set({
+  await storage.set({
     [DEVELOPER_ERRORS_KEY]: [{ message, detail: normalizedDetail, createdAt: Date.now() }, ...errors].slice(0, 20)
   });
 }
 
 export async function getDeveloperErrors(): Promise<DeveloperError[]> {
-  const result = await chrome.storage.local.get(DEVELOPER_ERRORS_KEY);
+  const result = await getExtensionStorage().get(DEVELOPER_ERRORS_KEY);
   return (result[DEVELOPER_ERRORS_KEY] as DeveloperError[] | undefined) ?? [];
 }
 
 export async function clearDeveloperErrors(): Promise<void> {
-  await chrome.storage.local.set({ [DEVELOPER_ERRORS_KEY]: [] });
+  await getExtensionStorage().set({ [DEVELOPER_ERRORS_KEY]: [] });
 }
 
-export { CAPTION_STATE_KEY, DEVELOPER_ERRORS_KEY, SELECTED_TEXT_KEY };
-
+export { AUDIO_CAPTURE_STATE_KEY, CAPTION_STATE_KEY, DEVELOPER_ERRORS_KEY, SELECTED_TEXT_KEY };
