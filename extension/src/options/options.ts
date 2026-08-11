@@ -7,6 +7,7 @@ const autoWelcomeEnabled = document.querySelector<HTMLInputElement>('#autoWelcom
 const captionsEnabled = document.querySelector<HTMLInputElement>('#captionsEnabled')!;
 const avatarExpanded = document.querySelector<HTMLInputElement>('#avatarExpanded')!;
 const selectionModeEnabled = document.querySelector<HTMLInputElement>('#selectionModeEnabled')!;
+const autoSubmitSelection = document.querySelector<HTMLInputElement>('#autoSubmitSelection')!;
 const developerMode = document.querySelector<HTMLInputElement>('#developerMode')!;
 const apiKey = document.querySelector<HTMLInputElement>('#apiKey')!;
 const toggleDeveloperErrors = document.querySelector<HTMLButtonElement>('#toggleDeveloperErrors')!;
@@ -38,6 +39,7 @@ async function loadOptions(): Promise<void> {
   captionsEnabled.checked = preferences.captionsEnabled;
   avatarExpanded.checked = preferences.avatarExpanded;
   selectionModeEnabled.checked = preferences.selectionModeEnabled;
+  autoSubmitSelection.checked = preferences.autoSubmitSelection;
   developerMode.checked = preferences.developerMode;
   apiKey.value = preferences.apiKey;
   apiKey.disabled = !preferences.developerMode;
@@ -46,12 +48,24 @@ async function loadOptions(): Promise<void> {
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
+  let normalizedUrl: string;
+  try {
+    const parsed = new URL(proxyUrl.value.trim());
+    const localHttp = parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) && developerMode.checked;
+    if (parsed.protocol !== 'https:' && !localHttp) throw new Error();
+    if (parsed.username || parsed.password) throw new Error();
+    normalizedUrl = parsed.toString().replace(/\/$/, '');
+  } catch {
+    status.textContent = 'Informe uma URL HTTPS válida. HTTP só é permitido para desenvolvimento local.';
+    return;
+  }
   const preferences: ExtensionPreferences = {
-    proxyUrl: proxyUrl.value.trim(),
+    proxyUrl: normalizedUrl,
     autoWelcomeEnabled: autoWelcomeEnabled.checked,
     captionsEnabled: captionsEnabled.checked,
     avatarExpanded: avatarExpanded.checked,
     selectionModeEnabled: selectionModeEnabled.checked,
+    autoSubmitSelection: autoSubmitSelection.checked,
     developerMode: developerMode.checked,
     apiKey: developerMode.checked ? apiKey.value.trim() : ''
   };

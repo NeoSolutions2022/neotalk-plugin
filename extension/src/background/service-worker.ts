@@ -1,7 +1,7 @@
 import { submitPhrase } from '../shared/api.js';
 import { MESSAGES } from '../shared/messages.js';
-import { addDeveloperError, saveCaptionState, saveSelectedText } from '../shared/storage.js';
-import type { RuntimeMessage } from '../shared/types.js';
+import { addDeveloperError, migrateStoredApiKey, saveCaptionState, saveSelectedText } from '../shared/storage.js';
+import type { CaptureResponse, RuntimeMessage } from '../shared/types.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen/offscreen.html';
 
@@ -35,58 +35,91 @@ async function getCurrentTabStreamId(): Promise<string> {
   });
 }
 
-function sendExtensionMessage(message: unknown): Promise<unknown> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => resolve(response));
+function sendExtensionMessage(message: RuntimeMessage): Promise<CaptureResponse> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response: CaptureResponse | undefined) => {
+      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+      else resolve(response ?? { ok: false, error: 'O documento de áudio não respondeu.' });
+    });
   });
 }
 
-async function startTabAudio(): Promise<void> {
+async function startTabAudio(): Promise<CaptureResponse> {
   if (!chrome.tabCapture?.getMediaStreamId) {
     await saveCaptionState({ status: '', error: MESSAGES.tabAudioUnsupported });
-    return;
+    return { ok: false, error: MESSAGES.tabAudioUnsupported };
   }
 
   try {
     await saveCaptionState({ status: MESSAGES.listening, error: undefined });
     await ensureOffscreenDocument();
     const streamId = await getCurrentTabStreamId();
-    await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_START', streamId });
+    const result = await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_START', streamId });
+    if (!result.ok) throw new Error(result.error);
+    return result;
   } catch (error) {
     await saveCaptionState({ status: '', error: MESSAGES.tabAudioUnsupported });
     await addDeveloperError(MESSAGES.tabAudioUnsupported, error);
     console.warn('NeoTalk: falha técnica ao capturar áudio da aba.', error);
+    return { ok: false, error: error instanceof Error ? error.message : MESSAGES.tabAudioUnsupported };
   }
 }
 
-async function stopTabAudio(): Promise<void> {
+async function stopTabAudio(): Promise<CaptureResponse> {
   try {
     await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_STOP' });
   } catch {
     // A ausência temporária do documento offscreen não deve quebrar a UI.
   }
   await saveCaptionState({ status: '', error: undefined });
+  return { ok: true };
 }
-async function startMicrophone(): Promise<void> {
+async function startMicrophone(): Promise<CaptureResponse> {
   try {
     await saveCaptionState({ status: MESSAGES.listening, error: undefined });
     await ensureOffscreenDocument();
-    await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_START_MIC' });
+    const result = await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_START_MIC' });
+    if (!result.ok) throw new Error(result.error);
+    return result;
   } catch (error) {
     await saveCaptionState({ status: '', error: MESSAGES.speechUnsupported });
     await addDeveloperError(MESSAGES.speechUnsupported, error);
     console.warn('NeoTalk: falha técnica ao capturar microfone.', error);
+    return { ok: false, error: error instanceof Error ? error.message : MESSAGES.speechUnsupported };
   }
 }
 
-async function stopMicrophone(): Promise<void> {
+async function stopMicrophone(): Promise<CaptureResponse> {
   try {
     await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_STOP_MIC' });
   } catch {
     // A ausência temporária do documento offscreen não deve quebrar a UI.
   }
   await saveCaptionState({ status: '', error: undefined });
+  return { ok: true };
 }
+
+const transcriptionChains = new Map<string, Promise<void>>();
+const lastSequences = new Map<string, number>();
+
+function queueTranscript(message: Extract<RuntimeMessage, { type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT' }>): Promise<void> {
+  const previous = transcriptionChains.get(message.sessionId) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    if (message.sequence <= (lastSequences.get(message.sessionId) ?? 0)) return;
+    lastSequences.set(message.sessionId, message.sequence);
+    const phrase = message.frase.trim().slice(0, 5_000);
+    if (!phrase) return;
+    await saveCaptionState({ status: MESSAGES.transcribing });
+    await submitPhrase(phrase, message.mode === 'microphone' ? 'microphone' : 'tab-audio');
+  }).finally(() => {
+    if (transcriptionChains.get(message.sessionId) === next) transcriptionChains.delete(message.sessionId);
+  });
+  transcriptionChains.set(message.sessionId, next);
+  return next;
+}
+
+void migrateStoredApiKey();
+chrome.runtime.onInstalled.addListener(() => void migrateStoredApiKey());
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
   void (async () => {
@@ -101,33 +134,28 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     }
 
     if (message.type === 'NEOTALK_TAB_AUDIO_TRANSCRIPT') {
-      await saveCaptionState({ status: MESSAGES.transcribing });
-      const fileUrl = await submitPhrase(message.frase, 'tab-audio');
-      sendResponse({ ok: Boolean(fileUrl), fileUrl });
+      await queueTranscript(message);
+      sendResponse({ ok: true });
       return;
     }
 
     if (message.type === 'NEOTALK_START_TAB_AUDIO') {
-      await startTabAudio();
-      sendResponse({ ok: true });
+      sendResponse(await startTabAudio());
       return;
     }
 
     if (message.type === 'NEOTALK_STOP_TAB_AUDIO') {
-      await stopTabAudio();
-      sendResponse({ ok: true });
+      sendResponse(await stopTabAudio());
       return;
     }
 
     if (message.type === 'NEOTALK_START_MICROPHONE') {
-      await startMicrophone();
-      sendResponse({ ok: true });
+      sendResponse(await startMicrophone());
       return;
     }
 
     if (message.type === 'NEOTALK_STOP_MICROPHONE') {
-      await stopMicrophone();
-      sendResponse({ ok: true });
+      sendResponse(await stopMicrophone());
     }
   })();
 

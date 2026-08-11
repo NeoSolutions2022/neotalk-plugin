@@ -1,26 +1,15 @@
 import { MESSAGES } from './messages.js';
+import { getTaskId, parseMaybeJson } from './api-response.js';
+import { normalizeBaseUrl } from './api-url.js';
 import { addDeveloperError, getPreferences, saveCaptionState } from './storage.js';
 import type { NeoTalkApiResponse, PhraseSource } from './types.js';
 
 const POLL_INTERVAL_MS = 2_000;
 const MAX_POLL_ATTEMPTS = 30;
 const activeSubmissions = new Set<string>();
-let lastCompletedSubmission = '';
 
 function getFileUrl(response: NeoTalkApiResponse): string | undefined {
   return response.file_url ?? response.fileUrl ?? response.url ?? response.video_url ?? response.result?.file_url ?? response.result?.fileUrl;
-}
-
-function normalizeBaseUrl(configuredUrl: string): string {
-  return configuredUrl
-    .replace(/\/+$/, '')
-    .replace(/\/sign-process-pose$/, '')
-    .replace(/\/sign-process-video$/, '')
-    .replace(/\/sign-process-type$/, '')
-    .replace(/\/task-status-type$/, '')
-    .replace(/\/task-status-pose$/, '')
-    .replace(/\/task-status-video$/, '')
-    .replace(/\/task-status$/, '');
 }
 
 function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: string; statusUrls: string[] } {
@@ -29,40 +18,6 @@ function buildApiUrls(configuredUrl: string, taskId?: string): { submitUrl: stri
     submitUrl: `${apiBaseUrl}/sign-process-video`,
     statusUrls: taskId ? [`${apiBaseUrl}/task-status-video/${encodeURIComponent(taskId)}`] : []
   };
-}
-
-function parseMaybeJson(text: string): NeoTalkApiResponse | string {
-  const trimmed = text.trim();
-  if (!trimmed) return '';
-
-  try {
-    return JSON.parse(trimmed) as NeoTalkApiResponse;
-  } catch {
-    return trimmed;
-  }
-}
-
-function getTaskId(response: unknown): string | undefined {
-  if (response == null) return undefined;
-  if (typeof response === 'number') return String(response);
-  if (typeof response === 'string') {
-    const parsed = parseMaybeJson(response);
-    if (parsed !== response) return getTaskId(parsed);
-    return response.trim() || undefined;
-  }
-  if (typeof response !== 'object') return undefined;
-
-  const payload = response as Record<string, unknown>;
-  const directTaskId = payload.task_id ?? payload.taskId ?? payload.taskID ?? payload.id ?? payload.job_id ?? payload.jobId ?? payload.celery_task_id ?? payload.task;
-  if (typeof directTaskId === 'string' && directTaskId.trim().length > 0) return directTaskId.trim();
-  if (typeof directTaskId === 'number') return String(directTaskId);
-
-  for (const nestedKey of ['data', 'result', 'task', 'payload']) {
-    const nestedTaskId = getTaskId(payload[nestedKey]);
-    if (nestedTaskId) return nestedTaskId;
-  }
-
-  return undefined;
 }
 
 function isTaskPending(response: NeoTalkApiResponse): boolean {
@@ -94,24 +49,10 @@ async function pollTaskStatus(taskId: string, proxyUrl: string, headers: Headers
 
     const response = await fetch(statusUrls[0], { method: 'GET', headers });
     const payload = await readResponsePayload(response);
-
-    if (response.status !== 202) {
-      if (!response.ok && response.status === 404 && statusUrls[1]) {
-        const fallbackResponse = await fetch(statusUrls[1], { method: 'GET', headers });
-        const fallbackPayload = await readResponsePayload(fallbackResponse);
-        if (fallbackResponse.status !== 202) {
-          if (!fallbackResponse.ok) throw new Error(typeof fallbackPayload === 'string' ? fallbackPayload : String(fallbackPayload.error ?? fallbackPayload.message ?? MESSAGES.translationError));
-          if (typeof fallbackPayload === 'string') throw new Error(fallbackPayload || MESSAGES.translationError);
-          if (getFileUrl(fallbackPayload)) return fallbackPayload;
-          if (!isTaskPending(fallbackPayload)) throw new Error(MESSAGES.translationError);
-        }
-      } else {
-        if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.error ?? payload.message ?? MESSAGES.translationError));
-        if (typeof payload === 'string') throw new Error(payload || MESSAGES.translationError);
-        if (getFileUrl(payload)) return payload;
-        if (!isTaskPending(payload)) throw new Error(MESSAGES.translationError);
-      }
-    }
+    if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.error ?? payload.message ?? MESSAGES.translationError));
+    if (typeof payload === 'string') throw new Error(payload || MESSAGES.translationError);
+    if (getFileUrl(payload)) return payload;
+    if (!isTaskPending(payload)) throw new Error(String(payload.error ?? payload.message ?? MESSAGES.translationError));
 
     if (attempt < MAX_POLL_ATTEMPTS - 1) await sleep(POLL_INTERVAL_MS);
   }
@@ -124,7 +65,7 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
 
   const trimmed = frase.trim();
   const submissionKey = `${source}:${trimmed}`;
-  if (activeSubmissions.has(submissionKey) || lastCompletedSubmission === submissionKey) return undefined;
+  if (activeSubmissions.has(submissionKey)) return undefined;
 
   activeSubmissions.add(submissionKey);
   await saveCaptionState({ caption: trimmed, status: MESSAGES.processing, error: undefined });
@@ -135,7 +76,8 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
     const formData = new FormData();
     formData.append('frase', trimmed);
 
-    const { submitUrl } = buildApiUrls(proxyUrl);
+    const validatedProxyUrl = normalizeBaseUrl(proxyUrl, developerMode);
+    const { submitUrl } = buildApiUrls(validatedProxyUrl);
     const response = await fetch(submitUrl, {
       method: 'POST',
       headers,
@@ -157,13 +99,12 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
       await saveCaptionState({ status: `Task ${taskId} criada. Consultando status...` });
     }
 
-    const finalPayload = immediateFileUrl ? (payload as NeoTalkApiResponse) : await pollTaskStatus(taskId!, proxyUrl, headers);
+    const finalPayload = immediateFileUrl ? (payload as NeoTalkApiResponse) : await pollTaskStatus(taskId!, validatedProxyUrl, headers);
     const fileUrl = finalPayload ? getFileUrl(finalPayload) : undefined;
 
     if (!fileUrl) throw new Error(`A task ${taskId ?? ''} terminou sem retornar URL do vídeo.`);
 
     await saveCaptionState({ caption: trimmed, status: '', fileUrl, error: undefined });
-    lastCompletedSubmission = submissionKey;
     return fileUrl;
   } catch (error) {
     await saveCaptionState({ caption: trimmed, status: '', error: MESSAGES.translationError });

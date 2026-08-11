@@ -1,180 +1,213 @@
-import { MESSAGES } from '../shared/messages.js';
-import { addDeveloperError, saveCaptionState } from '../shared/storage.js';
-import type { RuntimeMessage } from '../shared/types.js';
 import { pipeline, env } from '@xenova/transformers';
+import { MESSAGES } from '../shared/messages.js';
+import { normalizeTranscript } from '../shared/transcript.js';
+import { addDeveloperError, saveAudioCaptureState, saveCaptionState, saveSessionTranscript } from '../shared/storage.js';
+import type { AudioCaptureMode, CaptureResponse, RuntimeMessage } from '../shared/types.js';
 
-let stream: MediaStream | null = null;
-let transcriber: Awaited<ReturnType<typeof pipeline>> | null = null;
-let isListening = false;
-let activeRecorder: MediaRecorder | null = null;
-let sessionTranscript: string[] = [];
-const transcriptionQueue: Blob[] = [];
-let isProcessingQueue = false;
+const RECORD_CHUNK_MS = 15_000;
+const MAX_QUEUE_SIZE = 8;
+const MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
 
-const RECORD_CHUNK_MS = 15000; // duração de cada bloco de gravação — ajustável para os testes
+type Transcriber = Awaited<ReturnType<typeof pipeline>>;
+type CaptureSession = {
+  id: string;
+  mode: AudioCaptureMode;
+  stream: MediaStream;
+  recorder: MediaRecorder;
+  queue: Blob[];
+  transcript: string[];
+  sequence: number;
+  processing: boolean;
+  listening: boolean;
+  timer?: number;
+  audioContext?: AudioContext;
+  audioSource?: MediaStreamAudioSourceNode;
+};
 
-async function ensureTranscriber() {
+let transcriber: Transcriber | null = null;
+let activeSession: CaptureSession | null = null;
+let pendingSessionId: string | null = null;
+
+async function ensureTranscriber(mode: AudioCaptureMode, sessionId: string): Promise<Transcriber> {
   if (transcriber) return transcriber;
-  console.log('NeoTalk TESTE: iniciando carregamento do modelo Whisper...');
+  await saveAudioCaptureState({ phase: 'loading-model', mode, sessionId, message: 'Carregando o modelo de transcrição…' });
   env.backends.onnx.wasm.proxy = false;
   transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base');
-  console.log('NeoTalk TESTE: modelo carregado com sucesso!');
   return transcriber;
 }
 
 async function blobToWhisperInput(blob: Blob): Promise<Float32Array> {
-  const arrayBuffer = await blob.arrayBuffer();
-  const audioContext = new AudioContext({ sampleRate: 16000 });
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-  const channelData = audioBuffer.getChannelData(0);
-  await audioContext.close();
-  return channelData;
-}
-
-function downloadTranscriptTxt(): void {
-  if (sessionTranscript.length === 0) return;
-
-  const content = sessionTranscript.join('\n');
-  const blob = new Blob([content], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `neotalk-transcricao-${Date.now()}.txt`;
-  link.click();
-}
-
-async function processQueue(): Promise<void> {
-  if (isProcessingQueue) return; // já tem alguém processando, não duplica
-  if (transcriptionQueue.length === 0) return; // fila vazia, nada a fazer
-
-  isProcessingQueue = true;
-  const audioBlob = transcriptionQueue.shift()!; // pega o primeiro bloco da fila
-
-  const transcribeStart = performance.now();
+  const audioContext = new AudioContext({ sampleRate: 16_000 });
   try {
-    const audioData = await blobToWhisperInput(audioBlob);
-    // @ts-ignore — tipagem genérica do pipeline não reconhece o retorno específico de ASR
-    const result = await transcriber!(audioData, {
-      language: 'portuguese',
-      task: 'transcribe',
-      repetition_penalty: 1.3,
-      no_repeat_ngram_size: 3
-    });
-    const texto = (result as { text: string }).text?.trim();
-    const transcribeEnd = performance.now();
-    console.log(`NeoTalk TIMING: transcrição durou ${(transcribeEnd - transcribeStart).toFixed(0)}ms | fila restante: ${transcriptionQueue.length}`);
-
-    if (texto && texto.length > 0) {
-      sessionTranscript.push(texto);
-      console.log('NeoTalk TRANSCRIÇÃO ACUMULADA:', sessionTranscript.join(' '));
-      chrome.runtime.sendMessage({ type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT', frase: texto });
-    }
-  } catch (error) {
-    console.error('NeoTalk: falha ao transcrever bloco da fila.', error);
+    const audioBuffer = await audioContext.decodeAudioData(await blob.arrayBuffer());
+    return audioBuffer.getChannelData(0);
+  } finally {
+    await audioContext.close();
   }
-
-  isProcessingQueue = false;
-  void processQueue(); // tenta processar o próximo item da fila, se houver
 }
 
-async function waitForQueueAndDownload(): Promise<void> {
-  while (transcriptionQueue.length > 0 || isProcessingQueue) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  downloadTranscriptTxt();
+function selectMimeType(): string {
+  const mimeType = MIME_TYPES.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+  if (!mimeType) throw new Error('Nenhum formato de gravação compatível foi encontrado.');
+  return mimeType;
 }
 
-function startContinuousRecording(mediaStream: MediaStream): void {
-  const recorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
-  activeRecorder = recorder;
-  let chunks: Blob[] = [];
-  let recordStart = performance.now();
-
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) chunks.push(event.data);
-  };
-
-  recorder.onstop = () => {
-    const recordEnd = performance.now();
-    console.log(`NeoTalk TIMING: bloco gravado em ${(recordEnd - recordStart).toFixed(0)}ms`);
-
-    const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-    transcriptionQueue.push(audioBlob);
-    void processQueue();
-
-    if (isListening) {
-      chunks = [];
-      recordStart = performance.now();
-      recorder.start();
-      setTimeout(() => {
-        if (recorder.state !== 'inactive') recorder.stop();
-      }, RECORD_CHUNK_MS);
-    } else {
-      mediaStream.getTracks().forEach((track) => track.stop());
-      void waitForQueueAndDownload();
+async function processQueue(session: CaptureSession): Promise<void> {
+  if (session.processing) return;
+  session.processing = true;
+  try {
+    while (session.queue.length > 0) {
+      const audioBlob = session.queue.shift();
+      if (!audioBlob) continue;
+      await saveAudioCaptureState({ phase: 'transcribing', mode: session.mode, sessionId: session.id, queueSize: session.queue.length });
+      try {
+        const model = await ensureTranscriber(session.mode, session.id);
+        const audioData = await blobToWhisperInput(audioBlob);
+        // @ts-expect-error A tipagem genérica do pipeline não descreve o retorno específico de ASR.
+        const result = await model(audioData, { language: 'portuguese', task: 'transcribe', repetition_penalty: 1.3, no_repeat_ngram_size: 3 });
+        const previousText = session.transcript.join(' ');
+        const text = normalizeTranscript((result as { text?: string }).text ?? '', previousText);
+        if (text) {
+          session.transcript.push(text);
+          session.sequence += 1;
+          void chrome.runtime.sendMessage({ type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT', frase: text, sessionId: session.id, sequence: session.sequence, mode: session.mode } satisfies RuntimeMessage);
+        }
+      } catch (error) {
+        await addDeveloperError('Não foi possível transcrever um bloco de áudio.', error);
+        await saveCaptionState({ status: '', error: 'Um trecho do áudio não pôde ser transcrito.' });
+      }
     }
-  };
+  } finally {
+    session.processing = false;
+    if (session.listening && activeSession?.id === session.id) {
+      await saveAudioCaptureState({ phase: 'recording', mode: session.mode, sessionId: session.id, queueSize: 0 });
+    }
+  }
+}
 
-  recorder.start();
-  setTimeout(() => {
-    if (recorder.state !== 'inactive') recorder.stop();
+function scheduleRecorderStop(session: CaptureSession): void {
+  window.clearTimeout(session.timer);
+  session.timer = window.setTimeout(() => {
+    if (session.recorder.state === 'recording') session.recorder.stop();
   }, RECORD_CHUNK_MS);
 }
 
-function stopCapture(): void {
-  isListening = false;
-  if (activeRecorder && activeRecorder.state !== 'inactive') {
-    activeRecorder.stop();
-  }
-  stream = null;
+function configureRecorder(session: CaptureSession): void {
+  let chunks: Blob[] = [];
+  session.recorder.ondataavailable = (event) => {
+    if (event.data.size > 0) chunks.push(event.data);
+  };
+  session.recorder.onerror = () => void finishSession(session, 'Falha durante a gravação do áudio.');
+  session.recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: session.recorder.mimeType });
+    chunks = [];
+    if (blob.size > 0) {
+      if (session.queue.length >= MAX_QUEUE_SIZE) {
+        void finishSession(session, 'A transcrição não acompanhou a gravação. A captura foi interrompida para proteger a memória.');
+        return;
+      }
+      session.queue.push(blob);
+      void processQueue(session);
+    }
+    if (session.listening && activeSession?.id === session.id) {
+      session.recorder.start();
+      scheduleRecorderStop(session);
+    }
+  };
 }
 
-async function startCapture(streamId: string): Promise<void> {
+async function finishSession(session: CaptureSession, error?: string): Promise<void> {
+  session.listening = false;
+  window.clearTimeout(session.timer);
+  if (session.recorder.state === 'recording') session.recorder.stop();
+  session.stream.getTracks().forEach((track) => track.stop());
+  session.audioSource?.disconnect();
+  if (session.audioContext && session.audioContext.state !== 'closed') await session.audioContext.close();
+  while (session.processing || session.queue.length > 0) await new Promise((resolve) => setTimeout(resolve, 100));
+  await saveSessionTranscript(session.transcript.join(' '));
+  if (activeSession?.id === session.id) activeSession = null;
+  await saveAudioCaptureState(error ? { phase: 'error', mode: session.mode, message: error } : { phase: 'inactive' });
+  if (error) {
+    await saveCaptionState({ status: '', error });
+    await addDeveloperError(error);
+  }
+}
+
+async function stopActiveSession(): Promise<void> {
+  pendingSessionId = null;
+  if (!activeSession) {
+    await saveAudioCaptureState({ phase: 'inactive' });
+    return;
+  }
+  const session = activeSession;
+  await saveAudioCaptureState({ phase: 'stopping', mode: session.mode, sessionId: session.id });
+  await finishSession(session);
+}
+
+async function createSession(mode: AudioCaptureMode, stream: MediaStream): Promise<CaptureSession> {
+  const session: CaptureSession = {
+    id: crypto.randomUUID(), mode, stream, recorder: new MediaRecorder(stream, { mimeType: selectMimeType() }),
+    queue: [], transcript: [], sequence: 0, processing: false, listening: true
+  };
+  if (mode === 'tab') {
+    session.audioContext = new AudioContext();
+    session.audioSource = session.audioContext.createMediaStreamSource(stream);
+    session.audioSource.connect(session.audioContext.destination);
+  }
+  configureRecorder(session);
+  return session;
+}
+
+async function startWithStream(mode: AudioCaptureMode, streamFactory: () => Promise<MediaStream>): Promise<void> {
+  await stopActiveSession();
+  const pendingId = crypto.randomUUID();
+  pendingSessionId = pendingId;
+  await saveAudioCaptureState({ phase: 'starting', mode, sessionId: pendingId });
+  const stream = await streamFactory();
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        mandatory: {
-          chromeMediaSource: 'tab',
-          chromeMediaSourceId: streamId
-        }
-      } as MediaTrackConstraints,
-      video: false
-    });
-
-    await ensureTranscriber();
-
-    isListening = true;
-    sessionTranscript = [];
-    transcriptionQueue.length = 0; // limpa a fila de uma sessão anterior, se houver
-    startContinuousRecording(stream);
+    await ensureTranscriber(mode, pendingId);
+    if (pendingSessionId !== pendingId) throw new Error('A inicialização da captura foi substituída por outra solicitação.');
+    const session = await createSession(mode, stream);
+    activeSession = session;
+    pendingSessionId = null;
+    session.recorder.start();
+    scheduleRecorderStop(session);
+    await saveSessionTranscript('');
+    await saveAudioCaptureState({ phase: 'recording', mode, sessionId: session.id, queueSize: 0 });
   } catch (error) {
-    await saveCaptionState({ status: '', error: MESSAGES.tabAudioUnsupported });
-    await addDeveloperError(MESSAGES.tabAudioUnsupported, error);
-    console.warn('NeoTalk: falha técnica ao capturar áudio da aba.', error);
-  }
-}
-async function startMicrophoneCapture(): Promise<void> {
-  try {
-    const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream = micStream;
-
-    await ensureTranscriber();
-
-    isListening = true;
-    sessionTranscript = [];
-    transcriptionQueue.length = 0;
-    startContinuousRecording(micStream);
-  } catch (error) {
-    await saveCaptionState({ status: '', error: MESSAGES.speechUnsupported });
-    await addDeveloperError(MESSAGES.speechUnsupported, error);
-    console.warn('NeoTalk: falha ao capturar microfone.', error);
+    if (pendingSessionId === pendingId) pendingSessionId = null;
+    stream.getTracks().forEach((track) => track.stop());
+    throw error;
   }
 }
 
-chrome.runtime.onMessage.addListener((message: RuntimeMessage) => {
-  if (message.type === 'NEOTALK_OFFSCREEN_START') void startCapture(message.streamId);
-  if (message.type === 'NEOTALK_OFFSCREEN_STOP') stopCapture();
-  if (message.type === 'NEOTALK_OFFSCREEN_START_MIC') void startMicrophoneCapture();
-  if (message.type === 'NEOTALK_OFFSCREEN_STOP_MIC') stopCapture();
+function startTabCapture(streamId: string): Promise<void> {
+  return startWithStream('tab', () => navigator.mediaDevices.getUserMedia({
+    audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } } as MediaTrackConstraints,
+    video: false
+  }));
+}
+
+function startMicrophoneCapture(): Promise<void> {
+  return startWithStream('microphone', () => navigator.mediaDevices.getUserMedia({ audio: true, video: false }));
+}
+
+chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+  if (!message.type.startsWith('NEOTALK_OFFSCREEN_')) return false;
+  void (async () => {
+    try {
+      if (message.type === 'NEOTALK_OFFSCREEN_START') await startTabCapture(message.streamId);
+      if (message.type === 'NEOTALK_OFFSCREEN_START_MIC') await startMicrophoneCapture();
+      if (message.type === 'NEOTALK_OFFSCREEN_STOP' || message.type === 'NEOTALK_OFFSCREEN_STOP_MIC') await stopActiveSession();
+      sendResponse({ ok: true } satisfies CaptureResponse);
+    } catch (error) {
+      const fallback = message.type.includes('MIC') ? MESSAGES.speechUnsupported : MESSAGES.tabAudioUnsupported;
+      const detail = error instanceof Error ? error.message : fallback;
+      await saveAudioCaptureState({ phase: 'error', message: detail });
+      await saveCaptionState({ status: '', error: fallback });
+      await addDeveloperError(fallback, error);
+      sendResponse({ ok: false, error: detail } satisfies CaptureResponse);
+    }
+  })();
+  return true;
 });

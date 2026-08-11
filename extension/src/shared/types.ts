@@ -8,6 +8,18 @@ export type ExtensionPreferences = {
   developerMode: boolean;
   apiKey: string;
   selectionModeEnabled: boolean;
+  autoSubmitSelection: boolean;
+};
+
+export type AudioCaptureMode = 'tab' | 'microphone';
+export type AudioCaptureState = {
+  phase: 'inactive' | 'starting' | 'loading-model' | 'recording' | 'transcribing' | 'stopping' | 'error';
+  mode?: AudioCaptureMode;
+  sessionId?: string;
+  queueSize?: number;
+  progress?: number;
+  message?: string;
+  updatedAt: number;
 };
 
 export type DeveloperError = { message: string; detail?: string; createdAt: number };
@@ -55,4 +67,7 @@ export type OffscreenMessage =
   | { type: 'NEOTALK_OFFSCREEN_START_MIC' }
   | { type: 'NEOTALK_OFFSCREEN_STOP_MIC' };
 
-export type RuntimeMessage = SubmitPhraseMessage | TabAudioMessage | MicrophoneMessage | OffscreenMessage | { type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT'; frase: string };
+export type CaptureResponse = { ok: boolean; error?: string };
+
+export type RuntimeMessage = SubmitPhraseMessage | TabAudioMessage | MicrophoneMessage | OffscreenMessage
+  | { type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT'; frase: string; sessionId: string; sequence: number; mode: AudioCaptureMode };
