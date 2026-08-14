@@ -1,3 +1,6 @@
+// Casar caracteres de controle e o objetivo desta expressao: eles chegam da
+// transcricao e quebram a resposta da API.
+// eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const ONLY_PUNCTUATION = /^[\p{P}\p{S}\s]+$/u;
 const KNOWN_SILENCE_ARTIFACTS = new Set(['[silêncio]', '(silêncio)', '[música]', '(música)', 'obrigado por assistir']);

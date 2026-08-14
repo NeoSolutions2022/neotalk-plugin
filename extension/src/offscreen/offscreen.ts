@@ -3,8 +3,9 @@ import { MESSAGES } from '../shared/messages.js';
 import { normalizeTranscript } from '../shared/transcript.js';
 import { addDeveloperError, saveAudioCaptureState, saveCaptionState, saveSessionTranscript } from '../shared/storage.js';
 import type { AudioCaptureMode, CaptureResponse, RuntimeMessage } from '../shared/types.js';
+import { SpeechSegmenter, rootMeanSquare } from './speech-segmenter.js';
 
-const RECORD_CHUNK_MS = 15_000;
+const LEVEL_POLL_MS = 50;
 const MAX_QUEUE_SIZE = 8;
 const MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
 
@@ -19,9 +20,13 @@ type CaptureSession = {
   sequence: number;
   processing: boolean;
   listening: boolean;
-  timer?: number;
+  segmenter: SpeechSegmenter;
+  /** Marcado pelo segmentador quando o trecho gravado nao contem fala. */
+  discard: { next: boolean };
+  levelTimer?: number;
   audioContext?: AudioContext;
   audioSource?: MediaStreamAudioSourceNode;
+  analyser?: AnalyserNode;
 };
 
 let transcriber: Transcriber | null = null;
@@ -85,11 +90,18 @@ async function processQueue(session: CaptureSession): Promise<void> {
   }
 }
 
-function scheduleRecorderStop(session: CaptureSession): void {
-  window.clearTimeout(session.timer);
-  session.timer = window.setTimeout(() => {
-    if (session.recorder.state === 'recording') session.recorder.stop();
-  }, RECORD_CHUNK_MS);
+/**
+ * Mede a energia do sinal e deixa o segmentador decidir onde cortar. O
+ * AnalyserNode substitui o ScriptProcessorNode, que esta obsoleto.
+ */
+function watchAudioLevel(session: CaptureSession): void {
+  const analyser = session.analyser;
+  if (!analyser) return;
+  const samples = new Float32Array(analyser.fftSize);
+  session.levelTimer = window.setInterval(() => {
+    analyser.getFloatTimeDomainData(samples);
+    session.segmenter.push(rootMeanSquare(samples), performance.now());
+  }, LEVEL_POLL_MS);
 }
 
 function configureRecorder(session: CaptureSession): void {
@@ -101,7 +113,9 @@ function configureRecorder(session: CaptureSession): void {
   session.recorder.onstop = () => {
     const blob = new Blob(chunks, { type: session.recorder.mimeType });
     chunks = [];
-    if (blob.size > 0) {
+    const discarded = session.discard.next;
+    session.discard.next = false;
+    if (blob.size > 0 && !discarded) {
       if (session.queue.length >= MAX_QUEUE_SIZE) {
         void finishSession(session, 'A transcrição não acompanhou a gravação. A captura foi interrompida para proteger a memória.');
         return;
@@ -111,17 +125,20 @@ function configureRecorder(session: CaptureSession): void {
     }
     if (session.listening && activeSession?.id === session.id) {
       session.recorder.start();
-      scheduleRecorderStop(session);
+      session.segmenter.reset(performance.now());
     }
   };
 }
 
 async function finishSession(session: CaptureSession, error?: string): Promise<void> {
   session.listening = false;
-  window.clearTimeout(session.timer);
+  window.clearInterval(session.levelTimer);
+  // Entrega o que ja foi falado antes de encerrar.
+  session.segmenter.end(performance.now());
   if (session.recorder.state === 'recording') session.recorder.stop();
   session.stream.getTracks().forEach((track) => track.stop());
   session.audioSource?.disconnect();
+  session.analyser?.disconnect();
   if (session.audioContext && session.audioContext.state !== 'closed') await session.audioContext.close();
   while (session.processing || session.queue.length > 0) await new Promise((resolve) => setTimeout(resolve, 100));
   await saveSessionTranscript(session.transcript.join(' '));
@@ -145,15 +162,26 @@ async function stopActiveSession(): Promise<void> {
 }
 
 async function createSession(mode: AudioCaptureMode, stream: MediaStream): Promise<CaptureSession> {
+  const recorder = new MediaRecorder(stream, { mimeType: selectMimeType() });
+  const discard = { next: false };
+  const segmenter = new SpeechSegmenter((hadSpeech) => {
+    discard.next = !hadSpeech;
+    if (recorder.state === 'recording') recorder.stop();
+  });
   const session: CaptureSession = {
-    id: crypto.randomUUID(), mode, stream, recorder: new MediaRecorder(stream, { mimeType: selectMimeType() }),
-    queue: [], transcript: [], sequence: 0, processing: false, listening: true
+    id: crypto.randomUUID(), mode, stream, recorder,
+    queue: [], transcript: [], sequence: 0, processing: false, listening: true,
+    discard, segmenter
   };
-  if (mode === 'tab') {
-    session.audioContext = new AudioContext();
-    session.audioSource = session.audioContext.createMediaStreamSource(stream);
-    session.audioSource.connect(session.audioContext.destination);
-  }
+
+  session.audioContext = new AudioContext();
+  session.audioSource = session.audioContext.createMediaStreamSource(stream);
+  session.analyser = session.audioContext.createAnalyser();
+  session.analyser.fftSize = 2048;
+  session.audioSource.connect(session.analyser);
+  // tabCapture silencia a aba original; reencaminhar devolve o som ao usuario.
+  if (mode === 'tab') session.audioSource.connect(session.audioContext.destination);
+
   configureRecorder(session);
   return session;
 }
@@ -171,7 +199,8 @@ async function startWithStream(mode: AudioCaptureMode, streamFactory: () => Prom
     activeSession = session;
     pendingSessionId = null;
     session.recorder.start();
-    scheduleRecorderStop(session);
+    session.segmenter.reset(performance.now());
+    watchAudioLevel(session);
     await saveSessionTranscript('');
     await saveAudioCaptureState({ phase: 'recording', mode, sessionId: session.id, queueSize: 0 });
   } catch (error) {
