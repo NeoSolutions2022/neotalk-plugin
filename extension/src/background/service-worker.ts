@@ -1,6 +1,7 @@
 import { submitPhrase } from '../shared/api.js';
 import { MESSAGES } from '../shared/messages.js';
 import { conflictingMode, shouldIgnoreStart, shouldIgnoreStop } from '../shared/capture-guard.js';
+import { sanitizePhrase } from '../shared/text.js';
 import { addDeveloperError, getAudioCaptureState, migrateStoredApiKey, saveAudioCaptureState, saveCaptionState, saveSelectedText } from '../shared/storage.js';
 import type { AudioCaptureMode, CaptureResponse, RuntimeMessage } from '../shared/types.js';
 
@@ -147,7 +148,9 @@ function queueTranscript(message: Extract<RuntimeMessage, { type: 'NEOTALK_TAB_A
   const next = previous.then(async () => {
     if (message.sequence <= (lastSequences.get(message.sessionId) ?? 0)) return;
     lastSequences.set(message.sessionId, message.sequence);
-    const phrase = message.frase.trim().slice(0, 5_000);
+    // normalizeTranscript já tratou os artefatos da transcrição; aqui sobra
+    // o que quebra a API: emoji, invisíveis, pontuação tipográfica.
+    const phrase = sanitizePhrase(message.frase, { maxChars: 5_000 });
     if (!phrase) return;
     await saveCaptionState({ status: MESSAGES.transcribing });
     await submitPhrase(phrase, message.mode === 'microphone' ? 'microphone' : 'tab-audio');
@@ -185,11 +188,17 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
     }
 
     if (message.type === 'NEOTALK_SUBMIT_PHRASE') {
-      if (message.source === 'selection') {
-        await saveSelectedText(message.frase);
-        await saveCaptionState({ caption: message.frase, status: 'Texto selecionado pronto para traduzir.', error: undefined });
+      const frase = sanitizePhrase(message.frase);
+      if (!frase) {
+        await saveCaptionState({ caption: message.frase, status: '', error: MESSAGES.nothingToTranslate });
+        sendResponse({ ok: false, error: MESSAGES.nothingToTranslate });
+        return;
       }
-      const fileUrl = await submitPhrase(message.frase, message.source);
+      if (message.source === 'selection') {
+        await saveSelectedText(frase);
+        await saveCaptionState({ caption: frase, status: 'Texto selecionado pronto para traduzir.', error: undefined });
+      }
+      const fileUrl = await submitPhrase(frase, message.source);
       sendResponse({ ok: Boolean(fileUrl), fileUrl });
       return;
     }

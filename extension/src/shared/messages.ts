@@ -5,5 +5,6 @@ export const MESSAGES = {
   empty: 'Digite ou selecione um texto para traduzir.',
   speechUnsupported: 'Seu navegador não suporta reconhecimento de voz.',
   tabAudioUnsupported: 'Seu navegador não permite capturar diretamente o áudio desta aba. Use o microfone ou compartilhe a aba quando solicitado.',
-  translationError: 'Não foi possível traduzir agora. Tente novamente.'
+  translationError: 'Não foi possível traduzir agora. Tente novamente.',
+  nothingToTranslate: 'Não há texto traduzível na seleção.'
 } as const;
