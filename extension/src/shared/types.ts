@@ -12,10 +12,13 @@ export type ExtensionPreferences = {
 };
 
 export type AudioCaptureMode = 'tab' | 'microphone';
+export type AudioCapturePhase = 'inactive' | 'starting' | 'loading-model' | 'recording' | 'transcribing' | 'stopping' | 'error';
 export type AudioCaptureState = {
-  phase: 'inactive' | 'starting' | 'loading-model' | 'recording' | 'transcribing' | 'stopping' | 'error';
+  phase: AudioCapturePhase;
   mode?: AudioCaptureMode;
   sessionId?: string;
+  /** Aba dona da captura, para o botão não ficar vermelho nas outras. */
+  tabId?: number;
   queueSize?: number;
   progress?: number;
   message?: string;

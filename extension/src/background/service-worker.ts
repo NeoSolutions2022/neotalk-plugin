@@ -1,9 +1,20 @@
 import { submitPhrase } from '../shared/api.js';
 import { MESSAGES } from '../shared/messages.js';
-import { addDeveloperError, migrateStoredApiKey, saveCaptionState, saveSelectedText } from '../shared/storage.js';
-import type { CaptureResponse, RuntimeMessage } from '../shared/types.js';
+import { conflictingMode, shouldIgnoreStart, shouldIgnoreStop } from '../shared/capture-guard.js';
+import { addDeveloperError, getAudioCaptureState, migrateStoredApiKey, saveAudioCaptureState, saveCaptionState, saveSelectedText } from '../shared/storage.js';
+import type { AudioCaptureMode, CaptureResponse, RuntimeMessage } from '../shared/types.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen/offscreen.html';
+const RESTRICTED_URL = /^(chrome|edge|about|devtools|chrome-extension):/;
+
+/** Serializa os pedidos para dois cliques rapidos nao se atropelarem. */
+let captureChain: Promise<CaptureResponse> = Promise.resolve({ ok: true });
+
+function queueCapture(operation: () => Promise<CaptureResponse>): Promise<CaptureResponse> {
+  const next = captureChain.then(operation, operation);
+  captureChain = next.catch(() => ({ ok: false }));
+  return next;
+}
 
 async function ensureOffscreenDocument(): Promise<void> {
   if (!chrome.offscreen?.createDocument) throw new Error('offscreen-unavailable');
@@ -17,14 +28,18 @@ async function ensureOffscreenDocument(): Promise<void> {
 
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_DOCUMENT_PATH,
-    reasons: [chrome.offscreen.Reason.USER_MEDIA],
+    reasons: [chrome.offscreen.Reason.USER_MEDIA, chrome.offscreen.Reason.AUDIO_PLAYBACK],
     justification: 'Transcrever áudio da aba atual para tradução em Libras.'
   });
 }
 
-async function getCurrentTabStreamId(): Promise<string> {
+async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
+  return (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+}
+
+async function getCurrentTabStreamId(targetTabId: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    chrome.tabCapture.getMediaStreamId({}, (streamId) => {
+    chrome.tabCapture.getMediaStreamId({ targetTabId }, (streamId) => {
       const error = chrome.runtime.lastError;
       if (error || !streamId) {
         reject(new Error(error?.message ?? 'stream-unavailable'));
@@ -52,12 +67,18 @@ async function startTabAudio(): Promise<CaptureResponse> {
 
   try {
     await saveCaptionState({ status: MESSAGES.listening, error: undefined });
+    const tab = await getActiveTab();
+    if (!tab?.id || !tab.url || RESTRICTED_URL.test(tab.url) || tab.url.includes('chromewebstore.google.com')) {
+      throw new Error('Esta página não permite captura de áudio pelo navegador.');
+    }
+    await saveAudioCaptureState({ phase: 'starting', mode: 'tab', tabId: tab.id });
     await ensureOffscreenDocument();
-    const streamId = await getCurrentTabStreamId();
+    const streamId = await getCurrentTabStreamId(tab.id);
     const result = await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_START', streamId });
     if (!result.ok) throw new Error(result.error);
     return result;
   } catch (error) {
+    await saveAudioCaptureState({ phase: 'error', mode: 'tab', message: MESSAGES.tabAudioUnsupported });
     await saveCaptionState({ status: '', error: MESSAGES.tabAudioUnsupported });
     await addDeveloperError(MESSAGES.tabAudioUnsupported, error);
     console.warn('NeoTalk: falha técnica ao capturar áudio da aba.', error);
@@ -82,6 +103,7 @@ async function startMicrophone(): Promise<CaptureResponse> {
     if (!result.ok) throw new Error(result.error);
     return result;
   } catch (error) {
+    await saveAudioCaptureState({ phase: 'error', mode: 'microphone', message: MESSAGES.speechUnsupported });
     await saveCaptionState({ status: '', error: MESSAGES.speechUnsupported });
     await addDeveloperError(MESSAGES.speechUnsupported, error);
     console.warn('NeoTalk: falha técnica ao capturar microfone.', error);
@@ -97,6 +119,24 @@ async function stopMicrophone(): Promise<CaptureResponse> {
   }
   await saveCaptionState({ status: '', error: undefined });
   return { ok: true };
+}
+
+async function requestStart(mode: AudioCaptureMode): Promise<CaptureResponse> {
+  const now = Date.now();
+  const current = await getAudioCaptureState();
+  if (shouldIgnoreStart(current, mode, now)) return { ok: true };
+
+  // Só uma fonte por vez: transcrições sobrepostas chegariam embaralhadas.
+  if (conflictingMode(current, mode)) await requestStop();
+
+  return mode === 'tab' ? startTabAudio() : startMicrophone();
+}
+
+async function requestStop(): Promise<CaptureResponse> {
+  const current = await getAudioCaptureState();
+  if (shouldIgnoreStop(current, Date.now())) return { ok: true };
+  await saveAudioCaptureState({ phase: 'stopping', mode: current.mode, sessionId: current.sessionId });
+  return current.mode === 'microphone' ? stopMicrophone() : stopTabAudio();
 }
 
 const transcriptionChains = new Map<string, Promise<void>>();
@@ -121,6 +161,20 @@ function queueTranscript(message: Extract<RuntimeMessage, { type: 'NEOTALK_TAB_A
 void migrateStoredApiKey();
 chrome.runtime.onInstalled.addListener(() => void migrateStoredApiKey());
 
+function resetCaptureState(): void {
+  void saveAudioCaptureState({ phase: 'inactive' });
+}
+
+chrome.runtime.onStartup.addListener(resetCaptureState);
+chrome.runtime.onInstalled.addListener(resetCaptureState);
+
+/** Fechar a aba capturada encerra a captura. */
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void getAudioCaptureState().then((state) => {
+    if (state.mode === 'tab' && state.tabId === tabId) void queueCapture(requestStop);
+  });
+});
+
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
   void (async () => {
     if (message.type === 'NEOTALK_SUBMIT_PHRASE') {
@@ -140,22 +194,22 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     }
 
     if (message.type === 'NEOTALK_START_TAB_AUDIO') {
-      sendResponse(await startTabAudio());
+      sendResponse(await queueCapture(() => requestStart('tab')));
       return;
     }
 
     if (message.type === 'NEOTALK_STOP_TAB_AUDIO') {
-      sendResponse(await stopTabAudio());
+      sendResponse(await queueCapture(requestStop));
       return;
     }
 
     if (message.type === 'NEOTALK_START_MICROPHONE') {
-      sendResponse(await startMicrophone());
+      sendResponse(await queueCapture(() => requestStart('microphone')));
       return;
     }
 
     if (message.type === 'NEOTALK_STOP_MICROPHONE') {
-      sendResponse(await stopMicrophone());
+      sendResponse(await queueCapture(requestStop));
     }
   })();
 

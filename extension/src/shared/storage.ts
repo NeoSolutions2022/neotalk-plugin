@@ -52,7 +52,12 @@ export async function getAudioCaptureState(): Promise<AudioCaptureState> {
 }
 
 export async function saveAudioCaptureState(state: Omit<AudioCaptureState, 'updatedAt'>): Promise<void> {
-  await chrome.storage.local.set({ [AUDIO_CAPTURE_STATE_KEY]: { ...state, updatedAt: Date.now() } });
+  // A aba dona da captura é definida pelo service worker, mas o documento
+  // offscreen também grava estado durante a sessão. Sem preservar o tabId, o
+  // botão deixaria de aparecer como ativo na aba certa no meio da gravação.
+  const previous = state.phase === 'inactive' ? undefined : await getAudioCaptureState();
+  const tabId = state.tabId ?? previous?.tabId;
+  await chrome.storage.local.set({ [AUDIO_CAPTURE_STATE_KEY]: { ...state, tabId, updatedAt: Date.now() } });
 }
 
 export async function saveSessionTranscript(transcript: string): Promise<void> {
