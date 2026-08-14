@@ -1,11 +1,10 @@
 import { MESSAGES } from './messages.js';
-import { addDeveloperError, getPreferences, saveCaptionState } from './storage.js';
-import type { NeoTalkApiResponse, PhraseSource } from './types.js';
+import { addDeveloperError, getApiKey, getPreferences, saveCaptionState } from './storage.js';
+import type { ConversationMessageStatus, NeoTalkApiResponse, PhraseSource } from './types.js';
 
 const POLL_INTERVAL_MS = 2_000;
 const MAX_POLL_ATTEMPTS = 30;
 const activeSubmissions = new Set<string>();
-let lastCompletedSubmission = '';
 
 function getFileUrl(response: NeoTalkApiResponse): string | undefined {
   return response.file_url ?? response.fileUrl ?? response.url ?? response.video_url ?? response.result?.file_url ?? response.result?.fileUrl;
@@ -42,13 +41,15 @@ function parseMaybeJson(text: string): NeoTalkApiResponse | string {
   }
 }
 
-function getTaskId(response: unknown): string | undefined {
+export function getTaskId(response: unknown): string | undefined {
   if (response == null) return undefined;
   if (typeof response === 'number') return String(response);
   if (typeof response === 'string') {
     const parsed = parseMaybeJson(response);
     if (parsed !== response) return getTaskId(parsed);
-    return response.trim() || undefined;
+    const candidate = response.trim();
+    if (!candidate || ['accepted', 'pending', 'queued', 'processing', 'running', 'ok'].includes(candidate.toLowerCase())) return undefined;
+    return /^[a-z0-9][a-z0-9_-]{5,}$/i.test(candidate) ? candidate : undefined;
   }
   if (typeof response !== 'object') return undefined;
 
@@ -85,7 +86,7 @@ function authHeaders(developerMode: boolean, apiKey: string): HeadersInit {
   return developerMode && apiKey.trim().length > 0 ? { 'x-api-key': apiKey.trim() } : {};
 }
 
-async function pollTaskStatus(taskId: string, proxyUrl: string, headers: HeadersInit): Promise<NeoTalkApiResponse> {
+async function pollTaskStatus(taskId: string, proxyUrl: string, headers: HeadersInit, progress?: (status: ConversationMessageStatus) => Promise<void>): Promise<NeoTalkApiResponse> {
   const { statusUrls } = buildApiUrls(proxyUrl, taskId);
   if (statusUrls.length === 0) throw new Error('Task status URL indisponível.');
 
@@ -94,6 +95,8 @@ async function pollTaskStatus(taskId: string, proxyUrl: string, headers: Headers
 
     const response = await fetch(statusUrls[0], { method: 'GET', headers });
     const payload = await readResponsePayload(response);
+    if (typeof payload !== 'string' && getFileUrl(payload)) return payload;
+    await progress?.('generating-video');
 
     if (response.status !== 202) {
       if (!response.ok && response.status === 404 && statusUrls[1]) {
@@ -119,18 +122,19 @@ async function pollTaskStatus(taskId: string, proxyUrl: string, headers: Headers
   throw new Error('Tempo limite ao aguardar a tarefa de tradução.');
 }
 
-export async function submitPhrase(frase: string, source: PhraseSource): Promise<string | undefined> {
+export async function submitPhrase(frase: string, source: PhraseSource, progress?: (status: ConversationMessageStatus) => Promise<void>): Promise<string | undefined> {
   if (!frase || frase.trim().length === 0) return undefined;
 
   const trimmed = frase.trim();
   const submissionKey = `${source}:${trimmed}`;
-  if (activeSubmissions.has(submissionKey) || lastCompletedSubmission === submissionKey) return undefined;
+  if (activeSubmissions.has(submissionKey)) return undefined;
 
   activeSubmissions.add(submissionKey);
   await saveCaptionState({ caption: trimmed, status: MESSAGES.processing, error: undefined });
 
   try {
-    const { proxyUrl, developerMode, apiKey } = await getPreferences();
+    const { proxyUrl, developerMode } = await getPreferences();
+    const apiKey = await getApiKey();
     const headers = authHeaders(developerMode, apiKey);
     const formData = new FormData();
     formData.append('frase', trimmed);
@@ -142,6 +146,7 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
       body: formData
     });
     const payload = await readResponsePayload(response);
+    await progress?.('queued');
 
     if (!response.ok) throw new Error(typeof payload === 'string' ? payload : String(payload.message ?? payload.error ?? MESSAGES.translationError));
     if (typeof payload === 'string' && !payload) throw new Error(MESSAGES.translationError);
@@ -157,13 +162,12 @@ export async function submitPhrase(frase: string, source: PhraseSource): Promise
       await saveCaptionState({ status: `Task ${taskId} criada. Consultando status...` });
     }
 
-    const finalPayload = immediateFileUrl ? (payload as NeoTalkApiResponse) : await pollTaskStatus(taskId!, proxyUrl, headers);
+    const finalPayload = immediateFileUrl ? (payload as NeoTalkApiResponse) : await pollTaskStatus(taskId!, proxyUrl, headers, progress);
     const fileUrl = finalPayload ? getFileUrl(finalPayload) : undefined;
 
     if (!fileUrl) throw new Error(`A task ${taskId ?? ''} terminou sem retornar URL do vídeo.`);
 
     await saveCaptionState({ caption: trimmed, status: '', fileUrl, error: undefined });
-    lastCompletedSubmission = submissionKey;
     return fileUrl;
   } catch (error) {
     await saveCaptionState({ caption: trimmed, status: '', error: MESSAGES.translationError });
