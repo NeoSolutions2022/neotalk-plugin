@@ -1,4 +1,5 @@
-import type { CaptionState, DeveloperError, ExtensionPreferences } from './types.js';
+import { appendMessage, updateMessage } from './conversation.js';
+import type { AssistantUiState, CaptionState, ConversationMessage, ConversationState, DeveloperError, ExtensionPreferences } from './types.js';
 
 export const DEFAULT_PROXY_URL = 'https://infra-neotalk-api.k3p3ex.easypanel.host';
 export const DEFAULT_PREFERENCES: ExtensionPreferences = {
@@ -7,8 +8,8 @@ export const DEFAULT_PREFERENCES: ExtensionPreferences = {
   captionsEnabled: true,
   avatarExpanded: true,
   developerMode: false,
-  apiKey: '',
-  selectionModeEnabled: true
+  selectionModeEnabled: true,
+  autoSubmitSelection: false
 };
 
 const PREFERENCES_KEY = 'neotalkPreferences';
@@ -16,15 +17,43 @@ const CAPTION_STATE_KEY = 'neotalkCaptionState';
 const WELCOME_SENT_KEY = 'neotalkWelcomeSent';
 const SELECTED_TEXT_KEY = 'neotalkSelectedText';
 const DEVELOPER_ERRORS_KEY = 'neotalkDeveloperErrors';
+export const CONVERSATION_KEY = 'neotalkConversation';
+export const ASSISTANT_UI_KEY = 'neotalkAssistantUi';
+export const API_KEY_KEY = 'neotalkApiKey';
+let conversationWrite = Promise.resolve<ConversationState | void>(undefined);
 
 export async function getPreferences(): Promise<ExtensionPreferences> {
   const result = await chrome.storage.sync.get(PREFERENCES_KEY);
-  return { ...DEFAULT_PREFERENCES, ...(result[PREFERENCES_KEY] as Partial<ExtensionPreferences> | undefined) };
+  const stored = (result[PREFERENCES_KEY] as (Partial<ExtensionPreferences> & { apiKey?: string }) | undefined) ?? {};
+  if ('apiKey' in stored) {
+    if (stored.apiKey) await chrome.storage.local.set({ [API_KEY_KEY]: stored.apiKey });
+    delete stored.apiKey;
+    await chrome.storage.sync.set({ [PREFERENCES_KEY]: stored });
+  }
+  return { ...DEFAULT_PREFERENCES, ...stored };
 }
 
 export async function savePreferences(preferences: ExtensionPreferences): Promise<void> {
   await chrome.storage.sync.set({ [PREFERENCES_KEY]: preferences });
 }
+
+export async function getApiKey(): Promise<string> { const value = await chrome.storage.local.get(API_KEY_KEY); return typeof value[API_KEY_KEY] === 'string' ? value[API_KEY_KEY] : ''; }
+export async function saveApiKey(value: string): Promise<void> { await chrome.storage.local.set({ [API_KEY_KEY]: value }); }
+
+export async function getConversation(): Promise<ConversationState> {
+  const value = await chrome.storage.local.get(CONVERSATION_KEY);
+  return (value[CONVERSATION_KEY] as ConversationState | undefined) ?? { id: crypto.randomUUID(), messages: [], updatedAt: Date.now() };
+}
+function mutateConversation(reducer: (state: ConversationState) => ConversationState): Promise<ConversationState> {
+  const operation = conversationWrite.then(async () => { const next = reducer(await getConversation()); await chrome.storage.local.set({ [CONVERSATION_KEY]: next }); return next; });
+  conversationWrite = operation.catch(() => undefined);
+  return operation;
+}
+export function appendConversationMessage(message: ConversationMessage): Promise<ConversationState> { return mutateConversation((state) => appendMessage(state, message)); }
+export function updateConversationMessage(id: string, patch: Partial<ConversationMessage>): Promise<ConversationState> { return mutateConversation((state) => updateMessage(state, id, patch)); }
+export async function clearConversation(): Promise<void> { await mutateConversation(() => ({ id: crypto.randomUUID(), messages: [], updatedAt: Date.now() })); }
+export async function getAssistantUiState(): Promise<AssistantUiState> { const value = await chrome.storage.local.get(ASSISTANT_UI_KEY); return { minimized: false, unreadCount: 0, draft: '', activeConversationId: '', ...(value[ASSISTANT_UI_KEY] as Partial<AssistantUiState> | undefined) }; }
+export async function saveAssistantUiState(patch: Partial<AssistantUiState>): Promise<void> { await chrome.storage.local.set({ [ASSISTANT_UI_KEY]: { ...await getAssistantUiState(), ...patch } }); }
 
 export async function getCaptionState(): Promise<CaptionState> {
   const result = await chrome.storage.local.get(CAPTION_STATE_KEY);
@@ -81,4 +110,3 @@ export async function clearDeveloperErrors(): Promise<void> {
 }
 
 export { CAPTION_STATE_KEY, DEVELOPER_ERRORS_KEY, SELECTED_TEXT_KEY };
-

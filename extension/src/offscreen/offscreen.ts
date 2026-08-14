@@ -6,12 +6,17 @@ import type { SpeechRecognition, SpeechRecognitionResultEvent } from '../shared/
 
 let stream: MediaStream | null = null;
 let recognition: SpeechRecognition | null = null;
+let sessionId = '';
+let sequence = 0;
+let audioContext: AudioContext | null = null;
 
 function stopCapture(): void {
   recognition?.stop();
   recognition = null;
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
+  void audioContext?.close();
+  audioContext = null;
 }
 
 async function startCapture(streamId: string): Promise<void> {
@@ -31,6 +36,10 @@ async function startCapture(streamId: string): Promise<void> {
       } as MediaTrackConstraints,
       video: false
     });
+    sessionId = crypto.randomUUID();
+    sequence = 0;
+    audioContext = new AudioContext();
+    audioContext.createMediaStreamSource(stream).connect(audioContext.destination);
 
     recognition = new SpeechRecognition();
     recognition.lang = 'pt-BR';
@@ -39,7 +48,7 @@ async function startCapture(streamId: string): Promise<void> {
     recognition.onresult = (event: SpeechRecognitionResultEvent) => {
       const texto = event.results[event.results.length - 1][0].transcript;
       void saveCaptionState({ status: MESSAGES.transcribing, caption: texto, error: undefined })
-        .then(() => chrome.runtime.sendMessage({ type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT', frase: texto }));
+        .then(() => chrome.runtime.sendMessage({ type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT', frase: texto, sessionId, sequence: sequence++, mode: 'tab-audio' }));
     };
     recognition.onerror = () => void saveCaptionState({ status: '', error: MESSAGES.tabAudioUnsupported });
     recognition.start();

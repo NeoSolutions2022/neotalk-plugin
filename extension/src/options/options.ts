@@ -1,4 +1,4 @@
-import { clearDeveloperErrors, getDeveloperErrors, getPreferences, savePreferences } from '../shared/storage.js';
+import { clearDeveloperErrors, getApiKey, getDeveloperErrors, getPreferences, saveApiKey, savePreferences } from '../shared/storage.js';
 import type { DeveloperError, ExtensionPreferences } from '../shared/types.js';
 
 const form = document.querySelector<HTMLFormElement>('#optionsForm')!;
@@ -7,6 +7,7 @@ const autoWelcomeEnabled = document.querySelector<HTMLInputElement>('#autoWelcom
 const captionsEnabled = document.querySelector<HTMLInputElement>('#captionsEnabled')!;
 const avatarExpanded = document.querySelector<HTMLInputElement>('#avatarExpanded')!;
 const selectionModeEnabled = document.querySelector<HTMLInputElement>('#selectionModeEnabled')!;
+const autoSubmitSelection = document.querySelector<HTMLInputElement>('#autoSubmitSelection')!;
 const developerMode = document.querySelector<HTMLInputElement>('#developerMode')!;
 const apiKey = document.querySelector<HTMLInputElement>('#apiKey')!;
 const toggleDeveloperErrors = document.querySelector<HTMLButtonElement>('#toggleDeveloperErrors')!;
@@ -36,8 +37,9 @@ async function loadOptions(): Promise<void> {
   captionsEnabled.checked = preferences.captionsEnabled;
   avatarExpanded.checked = preferences.avatarExpanded;
   selectionModeEnabled.checked = preferences.selectionModeEnabled;
+  autoSubmitSelection.checked = preferences.autoSubmitSelection;
   developerMode.checked = preferences.developerMode;
-  apiKey.value = preferences.apiKey;
+  apiKey.value = await getApiKey();
   apiKey.disabled = !preferences.developerMode;
   await renderDeveloperErrors();
 }
@@ -50,11 +52,11 @@ form.addEventListener('submit', (event) => {
     captionsEnabled: captionsEnabled.checked,
     avatarExpanded: avatarExpanded.checked,
     selectionModeEnabled: selectionModeEnabled.checked,
-    developerMode: developerMode.checked,
-    apiKey: developerMode.checked ? apiKey.value.trim() : ''
+    autoSubmitSelection: autoSubmitSelection.checked,
+    developerMode: developerMode.checked
   };
 
-  void savePreferences(preferences).then(() => {
+  void Promise.all([savePreferences(preferences), saveApiKey(developerMode.checked ? apiKey.value.trim() : '')]).then(() => {
     status.textContent = 'Configurações salvas.';
   });
 });

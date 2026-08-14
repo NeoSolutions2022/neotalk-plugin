@@ -1,7 +1,7 @@
 import { submitPhrase } from '../shared/api.js';
 import { MESSAGES } from '../shared/messages.js';
-import { addDeveloperError, saveCaptionState, saveSelectedText } from '../shared/storage.js';
-import type { RuntimeMessage } from '../shared/types.js';
+import { addDeveloperError, appendConversationMessage, clearConversation, saveCaptionState, saveSelectedText, updateConversationMessage } from '../shared/storage.js';
+import type { ConversationMessage, PhraseSource, RuntimeMessage } from '../shared/types.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen/offscreen.html';
 
@@ -22,9 +22,9 @@ async function ensureOffscreenDocument(): Promise<void> {
   });
 }
 
-async function getCurrentTabStreamId(): Promise<string> {
+async function getCurrentTabStreamId(targetTabId: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    chrome.tabCapture.getMediaStreamId({}, (streamId) => {
+    chrome.tabCapture.getMediaStreamId({ targetTabId }, (streamId) => {
       const error = chrome.runtime.lastError;
       if (error || !streamId) {
         reject(new Error(error?.message ?? 'stream-unavailable'));
@@ -41,7 +41,7 @@ function sendExtensionMessage(message: unknown): Promise<unknown> {
   });
 }
 
-async function startTabAudio(): Promise<void> {
+async function startTabAudio(sender: chrome.runtime.MessageSender): Promise<void> {
   if (!chrome.tabCapture?.getMediaStreamId) {
     await saveCaptionState({ status: '', error: MESSAGES.tabAudioUnsupported });
     return;
@@ -49,8 +49,10 @@ async function startTabAudio(): Promise<void> {
 
   try {
     await saveCaptionState({ status: MESSAGES.listening, error: undefined });
+    const tab = sender.tab ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    if (!tab?.id || !tab.url || /^(chrome|edge|about|devtools|chrome-extension):/.test(tab.url) || tab.url.includes('chromewebstore.google.com')) throw new Error('restricted-page');
+    const streamId = await getCurrentTabStreamId(tab.id);
     await ensureOffscreenDocument();
-    const streamId = await getCurrentTabStreamId();
     await sendExtensionMessage({ type: 'NEOTALK_OFFSCREEN_START', streamId });
   } catch (error) {
     await saveCaptionState({ status: '', error: MESSAGES.tabAudioUnsupported });
@@ -68,27 +70,36 @@ async function stopTabAudio(): Promise<void> {
   await saveCaptionState({ status: '', error: undefined });
 }
 
-chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+async function translate(frase: string, source: PhraseSource, existingId?: string): Promise<{ ok: boolean; fileUrl?: string; messageId: string }> {
+  const text = frase.trim().slice(0, 4000);
+  const messageId = existingId ?? crypto.randomUUID();
+  const now = Date.now();
+  const message: ConversationMessage = { id: messageId, role: 'user', source, text, status: 'submitting', createdAt: now, updatedAt: now };
+  if (!existingId) await appendConversationMessage(message); else await updateConversationMessage(messageId, { text, status: 'submitting', error: undefined });
+  const fileUrl = await submitPhrase(text, source, (status) => updateConversationMessage(messageId, { status }));
+  await updateConversationMessage(messageId, fileUrl ? { status: 'completed', fileUrl, error: undefined } : { status: 'failed', error: MESSAGES.translationError });
+  return { ok: Boolean(fileUrl), fileUrl, messageId };
+}
+
+chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendResponse) => {
   void (async () => {
     if (message.type === 'NEOTALK_SUBMIT_PHRASE') {
       if (message.source === 'selection') {
         await saveSelectedText(message.frase);
         await saveCaptionState({ caption: message.frase, status: 'Texto selecionado pronto para traduzir.', error: undefined });
       }
-      const fileUrl = await submitPhrase(message.frase, message.source);
-      sendResponse({ ok: Boolean(fileUrl), fileUrl });
+      sendResponse(await translate(message.frase, message.source, message.messageId));
       return;
     }
 
     if (message.type === 'NEOTALK_TAB_AUDIO_TRANSCRIPT') {
       await saveCaptionState({ status: MESSAGES.transcribing });
-      const fileUrl = await submitPhrase(message.frase, 'tab-audio');
-      sendResponse({ ok: Boolean(fileUrl), fileUrl });
+      sendResponse(await translate(message.frase, message.mode));
       return;
     }
 
     if (message.type === 'NEOTALK_START_TAB_AUDIO') {
-      await startTabAudio();
+      await startTabAudio(sender);
       sendResponse({ ok: true });
       return;
     }
@@ -97,6 +108,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
       await stopTabAudio();
       sendResponse({ ok: true });
     }
+    if (message.type === 'NEOTALK_CLEAR_CONVERSATION') { await clearConversation(); sendResponse({ ok: true }); }
   })();
 
   return true;
