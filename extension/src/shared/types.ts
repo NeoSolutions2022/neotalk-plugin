@@ -73,4 +73,5 @@ export type OffscreenMessage =
 export type CaptureResponse = { ok: boolean; error?: string };
 
 export type RuntimeMessage = SubmitPhraseMessage | TabAudioMessage | MicrophoneMessage | OffscreenMessage
-  | { type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT'; frase: string; sessionId: string; sequence: number; mode: AudioCaptureMode };
+  | { type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT'; frase: string; sessionId: string; sequence: number; mode: AudioCaptureMode }
+  | { type: 'NEOTALK_WHICH_TAB' };

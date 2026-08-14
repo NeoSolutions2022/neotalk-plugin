@@ -1,3 +1,6 @@
+import { isActiveFor, isTransitional, reconcile } from '../shared/capture-guard.js';
+import type { AudioCaptureMode, AudioCaptureState } from '../shared/types.js';
+
 type NeoTalkSelectionMessage = {
   type: 'NEOTALK_SUBMIT_PHRASE';
   frase: string;
@@ -6,7 +9,6 @@ type NeoTalkSelectionMessage = {
 
 type SelectionPreferences = { selectionModeEnabled?: boolean; autoSubmitSelection?: boolean; captionsEnabled?: boolean; avatarExpanded?: boolean };
 type CaptionState = { caption?: string; status?: string; fileUrl?: string; error?: string };
-type AudioCaptureState = { phase?: string; mode?: 'tab' | 'microphone'; message?: string };
 
 const HOST_ID = 'neotalk-extension-selection-host';
 const TOOLTIP_CLASS = 'neotalk-extension-tooltip';
@@ -26,7 +28,7 @@ function sendSelectedPhrase(frase: string): void {
   void chrome.runtime.sendMessage(message);
 }
 
-function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; textarea: HTMLTextAreaElement; sendButton: HTMLButtonElement; header: HTMLElement; video: HTMLVideoElement; caption: HTMLElement; status: HTMLElement; menuButton: HTMLButtonElement; actions: HTMLElement; tabAudioButton: HTMLButtonElement; minimizeButton: HTMLButtonElement; bubble: HTMLButtonElement } {
+function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; textarea: HTMLTextAreaElement; sendButton: HTMLButtonElement; header: HTMLElement; video: HTMLVideoElement; caption: HTMLElement; status: HTMLElement; menuButton: HTMLButtonElement; actions: HTMLElement; tabAudioButton: HTMLButtonElement; microphoneButton: HTMLButtonElement; minimizeButton: HTMLButtonElement; bubble: HTMLButtonElement } {
   const existingHost = document.getElementById(HOST_ID);
   if (existingHost?.shadowRoot) {
     const existingTooltip = existingHost.shadowRoot.querySelector<HTMLButtonElement>(`.${TOOLTIP_CLASS}`);
@@ -40,10 +42,11 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     const existingMenuButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-menu');
     const existingActions = existingHost.shadowRoot.querySelector<HTMLElement>('#neotalk-extension-actions');
     const existingTabAudioButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-tab-audio');
+    const existingMicrophoneButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-microphone');
     const existingMinimizeButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-minimize');
     const existingBubble = existingHost.shadowRoot.querySelector<HTMLButtonElement>('.neotalk-extension-bubble');
-    if (existingTooltip && existingPanel && existingTextarea && existingSendButton && existingHeader && existingVideo && existingCaption && existingStatus && existingMenuButton && existingActions && existingTabAudioButton && existingMinimizeButton && existingBubble) {
-      return { tooltip: existingTooltip, panel: existingPanel, textarea: existingTextarea, sendButton: existingSendButton, header: existingHeader, video: existingVideo, caption: existingCaption, status: existingStatus, menuButton: existingMenuButton, actions: existingActions, tabAudioButton: existingTabAudioButton, minimizeButton: existingMinimizeButton, bubble: existingBubble };
+    if (existingTooltip && existingPanel && existingTextarea && existingSendButton && existingHeader && existingVideo && existingCaption && existingStatus && existingMenuButton && existingActions && existingTabAudioButton && existingMicrophoneButton && existingMinimizeButton && existingBubble) {
+      return { tooltip: existingTooltip, panel: existingPanel, textarea: existingTextarea, sendButton: existingSendButton, header: existingHeader, video: existingVideo, caption: existingCaption, status: existingStatus, menuButton: existingMenuButton, actions: existingActions, tabAudioButton: existingTabAudioButton, microphoneButton: existingMicrophoneButton, minimizeButton: existingMinimizeButton, bubble: existingBubble };
     }
   }
 
@@ -126,11 +129,22 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
       .neotalk-extension-avatar-box { min-height: 150px; border-radius: 14px; overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center; }
       .neotalk-extension-avatar-box:not(.expanded) { min-height: 100px; max-height: 130px; }
       #neotalk-extension-avatar-video { width: 100%; height: auto; max-height: 210px; display: block; background: #000; }
+      [hidden] { display: none !important; }
       #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #e2e8f0; text-align: center; font-size: 13px; }
       #neotalk-extension-caption { min-height: 34px; padding: 8px; border-radius: 10px; background: #f8fafc; border: 1px solid #cbd5e1; color: #0f172a; line-height: 1.35; }
       #neotalk-extension-status { min-height: 18px; color: #475569; font-size: 12px; }
       #neotalk-extension-actions[hidden] { display: none; }
-      #neotalk-extension-actions { display: grid; gap: 8px; }
+      #neotalk-extension-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .neotalk-extension-capture {
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        min-height: 44px; padding: 0 10px; border: 0; border-radius: 12px;
+        color: #ffffff; font: 700 13px Arial, Helvetica, sans-serif; cursor: pointer;
+      }
+      .neotalk-extension-capture .neotalk-extension-icon { font-size: 11px; line-height: 1; }
+      .neotalk-extension-capture.is-idle { background: #067647; }
+      .neotalk-extension-capture.is-transition { background: #b54708; cursor: progress; }
+      .neotalk-extension-capture.is-active { background: #b42318; }
+      .neotalk-extension-capture[disabled] { opacity: .9; }
       #neotalk-extension-selection-text {
         width: 100%;
         min-height: 76px;
@@ -172,7 +186,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
       <div class="neotalk-extension-panel-header"><span class="neotalk-extension-panel-title">NeoTalk seleção <small>arraste</small></span><button id="neotalk-extension-minimize" type="button" aria-label="Minimizar painel">−</button><button id="neotalk-extension-menu" type="button" aria-label="Abrir ações">⋯</button></div>
       <div class="neotalk-extension-panel-body">
         <div class="neotalk-extension-avatar-box">
-          <video id="neotalk-extension-avatar-video" autoplay muted loop controls playsinline></video>
+          <video id="neotalk-extension-avatar-video" autoplay muted loop controls playsinline hidden></video>
           <p id="neotalk-extension-avatar-placeholder">Avatar aguardando tradução.</p>
         </div>
         <div id="neotalk-extension-caption" aria-live="polite">Selecione um texto na página...</div>
@@ -180,7 +194,12 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         <textarea id="neotalk-extension-selection-text" aria-label="Texto selecionado para traduzir" placeholder="Selecione um texto na página..."></textarea>
         <button id="neotalk-extension-selection-send" type="button">Traduzir para Libras</button>
         <div id="neotalk-extension-actions">
-          <button id="neotalk-extension-tab-audio" type="button">Ativar áudio da aba</button>
+          <button id="neotalk-extension-microphone" class="neotalk-extension-capture is-idle" type="button" data-mode="microphone" aria-pressed="false">
+            <span class="neotalk-extension-icon" aria-hidden="true">&#9679;</span><span class="neotalk-extension-label">Microfone</span>
+          </button>
+          <button id="neotalk-extension-tab-audio" class="neotalk-extension-capture is-idle" type="button" data-mode="tab" aria-pressed="false">
+            <span class="neotalk-extension-icon" aria-hidden="true">&#9679;</span><span class="neotalk-extension-label">Áudio da aba</span>
+          </button>
         </div>
         <p class="neotalk-extension-helper">Ao selecionar texto com o mouse, ele aparece aqui e é enviado automaticamente quando o modo seleção está ativo.</p>
       </div>
@@ -200,6 +219,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     menuButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-menu')!,
     actions: shadow.querySelector<HTMLElement>('#neotalk-extension-actions')!,
     tabAudioButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-tab-audio')!,
+    microphoneButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-microphone')!,
     minimizeButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-minimize')!,
     bubble: shadow.querySelector<HTMLButtonElement>('.neotalk-extension-bubble')!
   };
@@ -237,6 +257,7 @@ function updateOverlayState(state: CaptionState): void {
     selectionUi.video.playsInline = true;
     const placeholder = selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder');
     if (placeholder) placeholder.hidden = true;
+    selectionUi.video.hidden = false;
     selectionUi.video.load();
     void selectionUi.video.play().catch(() => undefined);
   }
@@ -250,10 +271,13 @@ function applyPreferences(preferences?: SelectionPreferences): void {
   updatePanelVisibility();
 }
 
+let captureState: AudioCaptureState = { phase: 'inactive', updatedAt: 0 };
+let captureWatchdog: number | undefined;
+let currentTabId: number | null = null;
+
 function updateAudioCaptureState(state?: AudioCaptureState): void {
-  isTabAudioActive = state?.mode === 'tab' && !['inactive', 'error'].includes(state.phase ?? 'inactive');
-  selectionUi.tabAudioButton.disabled = ['starting', 'loading-model', 'stopping'].includes(state?.phase ?? '');
-  updateTabAudioButton();
+  captureState = state ?? { phase: 'inactive', updatedAt: Date.now() };
+  renderCaptureButtons();
 }
 
 function loadOverlayState(): void {
@@ -269,6 +293,14 @@ function loadSelectionModePreference(): void {
   });
   chrome.storage.local.get('neotalkAudioCaptureState', (result) => updateAudioCaptureState(result.neotalkAudioCaptureState as AudioCaptureState | undefined));
 }
+
+void chrome.runtime.sendMessage({ type: 'NEOTALK_WHICH_TAB' }).then(
+  (response: { tabId?: number } | undefined) => {
+    currentTabId = response?.tabId ?? null;
+    renderCaptureButtons();
+  },
+  () => undefined
+);
 
 loadSelectionModePreference();
 loadOverlayState();
@@ -358,22 +390,50 @@ selectionUi.bubble.addEventListener('click', () => {
   updateMinimizedState();
 });
 
-let isTabAudioActive = false;
-function updateTabAudioButton(): void {
-  if (isTabAudioActive) {
-    selectionUi.tabAudioButton.textContent = 'Parar áudio';
-    selectionUi.tabAudioButton.style.background = '#dc2626';
-  } else {
-    selectionUi.tabAudioButton.textContent = 'Ativar áudio da aba';
-    selectionUi.tabAudioButton.style.background = '#16a34a';
-  }
+const NAMES: Record<AudioCaptureMode, string> = { microphone: 'Microfone', tab: 'Áudio da aba' };
+const STOP_MESSAGES = { microphone: 'NEOTALK_STOP_MICROPHONE', tab: 'NEOTALK_STOP_TAB_AUDIO' } as const;
+const START_MESSAGES = { microphone: 'NEOTALK_START_MICROPHONE', tab: 'NEOTALK_START_TAB_AUDIO' } as const;
+
+function captureButtons(): HTMLButtonElement[] {
+  return [selectionUi.microphoneButton, selectionUi.tabAudioButton];
 }
-selectionUi.tabAudioButton.addEventListener('click', () => {
-  selectionUi.tabAudioButton.disabled = true;
-  void chrome.runtime.sendMessage({ type: isTabAudioActive ? 'NEOTALK_STOP_TAB_AUDIO' : 'NEOTALK_START_TAB_AUDIO' }).then((response: { ok?: boolean; error?: string }) => {
-    if (!response?.ok && response?.error) selectionUi.status.textContent = response.error;
-  }).finally(() => { selectionUi.tabAudioButton.disabled = false; });
-});
+
+function renderCaptureButtons(): void {
+  const state = reconcile(captureState, Date.now());
+
+  for (const button of captureButtons()) {
+    const mode = button.dataset.mode as AudioCaptureMode;
+    const active = isActiveFor(state, mode, currentTabId);
+    const transition = active && isTransitional(state.phase);
+    const status = transition ? 'transition' : active ? 'active' : 'idle';
+
+    button.className = `neotalk-extension-capture is-${status}`;
+    // Desabilitar na transição é o que impede o clique duplo de abrir dois streams.
+    button.disabled = transition;
+    button.setAttribute('aria-pressed', String(active));
+    button.querySelector('.neotalk-extension-icon')!.textContent = transition ? '◌' : active ? '■' : '●';
+    button.querySelector('.neotalk-extension-label')!.textContent = transition
+      ? (state.phase === 'stopping' ? 'Parando...' : 'Preparando...')
+      : active ? `Parar ${NAMES[mode].toLowerCase()}` : NAMES[mode];
+  }
+
+  // Uma transição sem confirmação precisa ser reavaliada, senão o botão
+  // ficaria âmbar para sempre caso o service worker fosse encerrado.
+  window.clearTimeout(captureWatchdog);
+  if (isTransitional(state.phase)) captureWatchdog = window.setTimeout(renderCaptureButtons, 1_000);
+}
+
+for (const button of captureButtons()) {
+  button.addEventListener('click', () => {
+    if (button.disabled) return;
+    const mode = button.dataset.mode as AudioCaptureMode;
+    const active = isActiveFor(reconcile(captureState, Date.now()), mode, currentTabId);
+    const type = active ? STOP_MESSAGES[mode] : START_MESSAGES[mode];
+    void chrome.runtime.sendMessage({ type }).then((response: { ok?: boolean; error?: string }) => {
+      if (!response?.ok && response?.error) selectionUi.status.textContent = response.error;
+    });
+  });
+}
 
 selectionUi.header.addEventListener('mousedown', (event) => {
   isDraggingPanel = true;

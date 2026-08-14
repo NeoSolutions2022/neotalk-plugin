@@ -175,8 +175,15 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   });
 });
 
-chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendResponse) => {
   void (async () => {
+    // O balão precisa saber em que aba está, para o botão da aba não aparecer
+    // como ativo nas outras.
+    if (message.type === 'NEOTALK_WHICH_TAB') {
+      sendResponse({ tabId: sender.tab?.id ?? null });
+      return;
+    }
+
     if (message.type === 'NEOTALK_SUBMIT_PHRASE') {
       if (message.source === 'selection') {
         await saveSelectedText(message.frase);

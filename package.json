@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc && npm run build:offscreen",
+    "build": "tsc && npm run build:offscreen && npm run build:content",
     "build:offscreen": "esbuild extension/src/offscreen/offscreen.ts --bundle --outfile=extension/dist/offscreen/offscreen.js --format=esm --platform=browser",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"extension/src/**/*.ts\"",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "build:content": "esbuild extension/src/content/content-script.ts --bundle --outfile=extension/dist/content/content-script.js --format=iife --platform=browser --target=chrome120"
   },
   "devDependencies": {
     "@eslint/js": "^9.7.0",

@@ -20,6 +20,8 @@ export const STALE_TRANSITION_MS = 20_000;
 
 const TRANSITIONAL: readonly AudioCapturePhase[] = ['starting', 'loading-model', 'stopping'];
 const RUNNING: readonly AudioCapturePhase[] = ['starting', 'loading-model', 'recording', 'transcribing'];
+/** Fases em que a fonte ainda está ocupada — inclui o encerramento em curso. */
+const BUSY: readonly AudioCapturePhase[] = [...RUNNING, 'stopping'];
 
 /** Fases em que o botão precisa ficar desabilitado. */
 export function isTransitional(phase: AudioCapturePhase): boolean {
@@ -31,9 +33,14 @@ export function isRunning(state: AudioCaptureState): boolean {
   return RUNNING.includes(state.phase);
 }
 
-/** O botão desta fonte deve aparecer como "parar"? */
+/** Há captura em andamento, subindo ou encerrando? */
+export function isBusy(state: AudioCaptureState): boolean {
+  return BUSY.includes(state.phase);
+}
+
+/** O botão desta fonte deve sair do verde? */
 export function isActiveFor(state: AudioCaptureState, mode: AudioCaptureMode, tabId?: number | null): boolean {
-  if (!isRunning(state) || state.mode !== mode) return false;
+  if (!isBusy(state) || state.mode !== mode) return false;
   // Captura de aba pertence a uma aba específica; microfone é global.
   if (mode === 'tab' && tabId != null && state.tabId != null) return state.tabId === tabId;
   return true;

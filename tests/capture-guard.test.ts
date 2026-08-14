@@ -93,6 +93,15 @@ test('microfone e global, vale para qualquer aba', () => {
   assert.equal(isActiveFor(microfone, 'microphone', 9), true);
 });
 
+// Durante o encerramento o botao nao pode voltar a verde: o usuario
+// clicaria de novo e abriria um stream enquanto o anterior ainda morre.
+test('encerramento em curso mantem o botao fora do verde', () => {
+  const parando = state({ phase: 'stopping', mode: 'tab', tabId: 7 });
+  assert.equal(isActiveFor(parando, 'tab', 7), true);
+  assert.equal(isTransitional(parando.phase), true, 'e transicao, logo desabilitado');
+  assert.equal(isActiveFor(parando, 'microphone', 7), false, 'a outra fonte segue livre');
+});
+
 test('estado parado ou em erro nunca aparece como ativo', () => {
   assert.equal(isActiveFor(state({ phase: 'inactive' }), 'tab', 7), false);
   assert.equal(isActiveFor(state({ phase: 'error', mode: 'tab', tabId: 7 }), 'tab', 7), false);
