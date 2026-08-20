@@ -28,6 +28,29 @@ const RECORDER_TIMESLICE_MS = 250;
 /** Intervalo entre prévias do trecho ainda aberto. */
 const PARTIAL_INTERVAL_MS = 1_200;
 
+/**
+ * Corte mais generoso que o padrão, por causa de como o Whisper funciona.
+ *
+ * Ele foi treinado em janelas de 30 s e usa o contexto da frase inteira para
+ * decidir cada palavra. Num fragmento de 1-2 s ele tem pouco com o que
+ * trabalhar: erra mais, inventa pontuação e produz as alucinações clássicas de
+ * trecho curto. O padrão (700 ms de silêncio, corte forçado em 5 s) fecha em
+ * cima de qualquer pausa natural no meio da frase, e era isso que estava
+ * derrubando a qualidade da transcrição do áudio da aba.
+ *
+ * Aqui só o trecho DEFINITIVO fica mais longo. A tela continua acompanhando
+ * pelas prévias a cada 1,2 s, que não dependem do corte — então a espera pelo
+ * texto confirmado cresce sem que a sensação de "ao vivo" mude.
+ */
+const SEGMENTER_OPTIONS = {
+  /** Pausa precisa ser deliberada, não a respiração no meio de uma frase. */
+  silenceMs: 1_100,
+  /** Fragmento muito curto quase nunca transcreve bem: melhor descartar. */
+  minSpeechMs: 500,
+  /** Fala corrida ganha bastante contexto antes do corte forçado. */
+  maxSegmentMs: 15_000
+};
+
 type PageAudioSession = {
   id: string;
   stream: MediaStream;
@@ -205,7 +228,7 @@ export async function startPageAudioCapture(tabId: number | null): Promise<{ ok:
     const segmenter = new SpeechSegmenter((hadSpeech) => {
       discard.next = !hadSpeech;
       if (recorder.state === 'recording') recorder.stop();
-    });
+    }, SEGMENTER_OPTIONS);
 
     const session: PageAudioSession = { id: sessionId, stream, recorder, audioContext, audioSource, analyser, destination, segmenter, discard, sequence: 0, listening: true, chunks: [], partialInFlight: false };
     configureRecorder(session);

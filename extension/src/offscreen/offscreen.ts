@@ -345,7 +345,21 @@ type MicrophoneSession = {
   listening: boolean;
   sequence: number;
   transcript: string[];
+  /** Pulso que reafirma a fase `recording`. Ver `MIC_HEARTBEAT_MS`. */
+  heartbeat?: number;
 };
+
+/**
+ * De quanto em quanto tempo a sessão de microfone reafirma que está gravando.
+ *
+ * Duas coisas dependem disso. A fase é escrita uma única vez ao final da
+ * partida, e se essa gravação se perder o botão fica preso em "Preparando..."
+ * com a captura rodando por baixo — reafirmar cura isso sozinho no pulso
+ * seguinte. E `reconcile` (`shared/capture-guard.ts`) considera travada toda
+ * transição parada há mais de 20 s, então manter o `updatedAt` fresco impede
+ * que uma sessão viva seja descartada como travada.
+ */
+const MIC_HEARTBEAT_MS = 5_000;
 
 let micSession: MicrophoneSession | null = null;
 
@@ -387,6 +401,9 @@ async function stopMicrophoneSession(): Promise<void> {
   if (!session) return;
   session.listening = false;
   micSession = null;
+  // Antes de qualquer gravação de estado: um pulso disparando no meio do
+  // encerramento reescreveria `recording` por cima de `stopping`/`inactive`.
+  if (session.heartbeat !== undefined) self.clearInterval(session.heartbeat);
   await saveAudioCaptureState({ phase: 'stopping', mode: 'microphone', sessionId: session.id });
   try {
     session.recognition.stop();
@@ -469,6 +486,11 @@ function startMicrophoneCapture(): Promise<void> {
     recognition.start();
     await saveSessionTranscript('');
     await saveAudioCaptureState({ phase: 'recording', mode: 'microphone', sessionId: id, queueSize: 0 });
+
+    session.heartbeat = self.setInterval(() => {
+      if (!session.listening || micSession?.id !== session.id) return;
+      void saveAudioCaptureState({ phase: 'recording', mode: 'microphone', sessionId: id, queueSize: 0 });
+    }, MIC_HEARTBEAT_MS);
   })(), GET_USER_MEDIA_TIMEOUT_MS, MICROPHONE_TIMEOUT);
 }
 

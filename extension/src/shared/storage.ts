@@ -86,13 +86,32 @@ export async function getAudioCaptureState(): Promise<AudioCaptureState> {
   return (result[AUDIO_CAPTURE_STATE_KEY] as AudioCaptureState | undefined) ?? { phase: 'inactive', updatedAt: Date.now() };
 }
 
-export async function saveAudioCaptureState(state: Omit<AudioCaptureState, 'updatedAt'>): Promise<void> {
-  // A aba dona da captura é definida pelo service worker, mas o documento
-  // offscreen também grava estado durante a sessão. Sem preservar o tabId, o
-  // botão deixaria de aparecer como ativo na aba certa no meio da gravação.
-  const previous = state.phase === 'inactive' ? undefined : await getAudioCaptureState();
-  const tabId = state.tabId ?? previous?.tabId;
-  await writeArea('local', { [AUDIO_CAPTURE_STATE_KEY]: { ...state, tabId, updatedAt: Date.now() } });
+/**
+ * Mesma proteção que `captionWriteChain` dá à legenda, e pelo mesmo motivo — que
+ * aqui custou mais caro. `saveAudioCaptureState` lê o estado atual antes de
+ * escrever (para preservar o `tabId`), e esse ler-modificar-escrever não é
+ * atômico: duas chamadas sobrepostas podem ambas ler antes de qualquer uma
+ * gravar, e a última apaga a outra.
+ *
+ * A partida do microfone faz três gravações em sequência curta
+ * (`inactive` → `starting` → `recording`) enquanto o service worker grava a
+ * sua própria `starting`. Perder a de `recording` deixa a fase presa em
+ * `starting`: o botão fica em "Preparando..." para sempre, desabilitado, com a
+ * captura rodando por baixo e sem nenhum jeito de parar a não ser fechar a aba.
+ */
+let captureWriteChain: Promise<void> = Promise.resolve();
+
+export function saveAudioCaptureState(state: Omit<AudioCaptureState, 'updatedAt'>): Promise<void> {
+  const next = captureWriteChain.then(async () => {
+    // A aba dona da captura é definida pelo service worker, mas o documento
+    // offscreen também grava estado durante a sessão. Sem preservar o tabId, o
+    // botão deixaria de aparecer como ativo na aba certa no meio da gravação.
+    const previous = state.phase === 'inactive' ? undefined : await getAudioCaptureState();
+    const tabId = state.tabId ?? previous?.tabId;
+    await writeArea('local', { [AUDIO_CAPTURE_STATE_KEY]: { ...state, tabId, updatedAt: Date.now() } });
+  });
+  captureWriteChain = next.catch(() => undefined);
+  return next;
 }
 
 export async function saveSessionTranscript(transcript: string): Promise<void> {

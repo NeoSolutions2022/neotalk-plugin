@@ -32,7 +32,7 @@ function sendSelectedPhrase(frase: string): void {
   void chrome.runtime.sendMessage(message);
 }
 
-function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; textarea: HTMLTextAreaElement; sendButton: HTMLButtonElement; header: HTMLElement; video: HTMLVideoElement; caption: HTMLElement; status: HTMLElement; menuButton: HTMLButtonElement; actions: HTMLElement; tabAudioButton: HTMLButtonElement; microphoneButton: HTMLButtonElement; minimizeButton: HTMLButtonElement; bubble: HTMLButtonElement } {
+function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; textarea: HTMLTextAreaElement; sendButton: HTMLButtonElement; header: HTMLElement; video: HTMLVideoElement; status: HTMLElement; menuButton: HTMLButtonElement; actions: HTMLElement; tabAudioButton: HTMLButtonElement; microphoneButton: HTMLButtonElement; minimizeButton: HTMLButtonElement; bubble: HTMLButtonElement } {
   const existingHost = document.getElementById(HOST_ID);
   if (existingHost?.shadowRoot) {
     const existingTooltip = existingHost.shadowRoot.querySelector<HTMLButtonElement>(`.${TOOLTIP_CLASS}`);
@@ -41,7 +41,6 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     const existingSendButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-selection-send');
     const existingHeader = existingHost.shadowRoot.querySelector<HTMLElement>('.neotalk-extension-panel-header');
     const existingVideo = existingHost.shadowRoot.querySelector<HTMLVideoElement>('#neotalk-extension-avatar-video');
-    const existingCaption = existingHost.shadowRoot.querySelector<HTMLElement>('#neotalk-extension-caption');
     const existingStatus = existingHost.shadowRoot.querySelector<HTMLElement>('#neotalk-extension-status');
     const existingMenuButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-menu');
     const existingActions = existingHost.shadowRoot.querySelector<HTMLElement>('#neotalk-extension-actions');
@@ -49,8 +48,8 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     const existingMicrophoneButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-microphone');
     const existingMinimizeButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-minimize');
     const existingBubble = existingHost.shadowRoot.querySelector<HTMLButtonElement>('.neotalk-extension-bubble');
-    if (existingTooltip && existingPanel && existingTextarea && existingSendButton && existingHeader && existingVideo && existingCaption && existingStatus && existingMenuButton && existingActions && existingTabAudioButton && existingMicrophoneButton && existingMinimizeButton && existingBubble) {
-      return { tooltip: existingTooltip, panel: existingPanel, textarea: existingTextarea, sendButton: existingSendButton, header: existingHeader, video: existingVideo, caption: existingCaption, status: existingStatus, menuButton: existingMenuButton, actions: existingActions, tabAudioButton: existingTabAudioButton, microphoneButton: existingMicrophoneButton, minimizeButton: existingMinimizeButton, bubble: existingBubble };
+    if (existingTooltip && existingPanel && existingTextarea && existingSendButton && existingHeader && existingVideo && existingStatus && existingMenuButton && existingActions && existingTabAudioButton && existingMicrophoneButton && existingMinimizeButton && existingBubble) {
+      return { tooltip: existingTooltip, panel: existingPanel, textarea: existingTextarea, sendButton: existingSendButton, header: existingHeader, video: existingVideo, status: existingStatus, menuButton: existingMenuButton, actions: existingActions, tabAudioButton: existingTabAudioButton, microphoneButton: existingMicrophoneButton, minimizeButton: existingMinimizeButton, bubble: existingBubble };
     }
   }
 
@@ -139,34 +138,11 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         box-shadow: 0 10px 28px rgba(15, 23, 42, .30);
       }
       .neotalk-extension-panel-body { display: grid; gap: 8px; padding: 12px; }
-      /* Avatar box agora contém vídeo E legenda, tudo junto. */
-      .neotalk-extension-avatar-box {
-        min-height: 180px;
-        border-radius: 14px;
-        overflow: hidden;
-        background: #0f172a;
-        display: flex;
-        flex-direction: column;
-        border: 1px solid #cbd5e1;
-      }
-      .neotalk-extension-avatar-box:not(.expanded) { min-height: 150px; max-height: 180px; }
-      /* Vídeo fica em cima e cresce para preencher. */
-      #neotalk-extension-avatar-video { width: 100%; height: auto; flex: 1; display: block; background: #000; min-height: 100px; }
+      .neotalk-extension-avatar-box { min-height: 150px; border-radius: 14px; overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center; }
+      .neotalk-extension-avatar-box:not(.expanded) { min-height: 100px; max-height: 130px; }
+      #neotalk-extension-avatar-video { width: 100%; height: auto; max-height: 210px; display: block; background: #000; }
       [hidden] { display: none !important; }
-      /* Placeholder idem. */
-      #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #e2e8f0; text-align: center; font-size: 13px; flex: 1; display: flex; align-items: center; justify-content: center; }
-      /* Caption agora fica EMBAIXO do vídeo, dentro da mesma caixa. */
-      #neotalk-extension-caption {
-        min-height: 40px;
-        padding: 8px;
-        background: #ffffff;
-        border-top: 1px solid #cbd5e1;
-        color: #0f172a;
-        line-height: 1.35;
-        flex-shrink: 0;
-      }
-      /* Texto ainda em reconhecimento: vai mudar antes de virar definitivo. */
-      .neotalk-extension-caption-partial { color: #64748b; font-style: italic; }
+      #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #e2e8f0; text-align: center; font-size: 13px; }
       #neotalk-extension-status { min-height: 18px; color: #475569; font-size: 12px; }
       #neotalk-extension-actions[hidden] { display: none; }
       #neotalk-extension-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -216,10 +192,9 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         <div class="neotalk-extension-avatar-box">
           <video id="neotalk-extension-avatar-video" autoplay muted loop controls playsinline hidden></video>
           <p id="neotalk-extension-avatar-placeholder">Avatar aguardando tradução.</p>
-          <div id="neotalk-extension-caption" aria-live="polite">Selecione um texto na página...</div>
         </div>
         <div id="neotalk-extension-status" aria-live="polite"></div>
-        <textarea id="neotalk-extension-selection-text" aria-label="Texto selecionado para traduzir" placeholder="Selecione um texto na página..."></textarea>
+        <textarea id="neotalk-extension-selection-text" aria-label="Texto para traduzir, e transcrição ao vivo durante a captura" aria-live="polite" placeholder="Selecione um texto na página, digite aqui, ou ative o microfone."></textarea>
         <button id="neotalk-extension-selection-send" type="button">Traduzir para Libras</button>
         <div id="neotalk-extension-actions">
           <button id="neotalk-extension-microphone" class="neotalk-extension-capture is-idle" type="button" data-mode="microphone" aria-pressed="false">
@@ -242,7 +217,6 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     sendButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-selection-send')!,
     header: shadow.querySelector<HTMLElement>('.neotalk-extension-panel-header')!,
     video: shadow.querySelector<HTMLVideoElement>('#neotalk-extension-avatar-video')!,
-    caption: shadow.querySelector<HTMLElement>('#neotalk-extension-caption')!,
     status: shadow.querySelector<HTMLElement>('#neotalk-extension-status')!,
     menuButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-menu')!,
     actions: shadow.querySelector<HTMLElement>('#neotalk-extension-actions')!,
@@ -284,32 +258,8 @@ function updateMinimizedState(): void {
   }
 }
 
-/**
- * Junta o texto já confirmado com o que ainda está sendo reconhecido. A prévia
- * entra em itálico esmaecido, para ficar claro que aquilo ainda vai mudar.
- */
-function renderCaption(state: CaptionState): void {
-  const confirmed = state.caption ?? '';
-  const preview = state.partialCaption ?? '';
-  selectionUi.caption.textContent = '';
-
-  if (!confirmed && !preview) {
-    selectionUi.caption.textContent = 'Selecione um texto na página...';
-    return;
-  }
-
-  if (confirmed) selectionUi.caption.append(confirmed);
-  if (!preview) return;
-
-  const previewNode = document.createElement('span');
-  previewNode.className = 'neotalk-extension-caption-partial';
-  previewNode.textContent = confirmed ? ` ${preview}` : preview;
-  selectionUi.caption.append(previewNode);
-}
-
 function updateOverlayState(state: CaptionState): void {
   lastCaptionState = state;
-  renderCaption(state);
   console.log('NeoTalk [balão]', { confirmado: state.caption, parcial: state.partialCaption ?? '', status: state.error || state.status || '' });
   selectionUi.status.textContent = state.error || state.status || '';
   applyTextareaLock();
@@ -341,7 +291,6 @@ function updateOverlayState(state: CaptionState): void {
 function applyPreferences(preferences?: SelectionPreferences): void {
   selectionModeEnabled = preferences?.selectionModeEnabled ?? true;
   autoSubmitSelection = preferences?.autoSubmitSelection ?? false;
-  selectionUi.caption.hidden = preferences?.captionsEnabled === false;
   selectionUi.video.parentElement?.classList.toggle('expanded', preferences?.avatarExpanded ?? true);
   // `selectionModeEnabled` governa só o tooltip de seleção; quem abre e fecha o
   // balão é `panelOpen`.
@@ -578,12 +527,18 @@ function renderCaptureButtons(): void {
     const status = transition ? 'transition' : active ? 'active' : 'idle';
 
     button.className = `neotalk-extension-capture is-${status}`;
-    // Desabilitar na transição é o que impede o clique duplo de abrir dois streams.
-    button.disabled = transition;
+    // O botão NUNCA é desabilitado. Desabilitar durante a transição era uma
+    // armadilha: `transition` só é verdadeiro para o botão que está ativo, ou
+    // seja, exatamente quando o usuário precisa poder parar. Bastava uma
+    // gravação de estado se perder para a fase ficar presa em `starting` e não
+    // sobrar saída nenhuma a não ser fechar a aba. O duplo start já é impedido
+    // no service worker por `shouldIgnoreStart`, e o duplo stop por
+    // `shouldIgnoreStop` — desabilitar aqui não protegia nada que já não
+    // estivesse protegido.
     button.setAttribute('aria-pressed', String(active));
     button.querySelector('.neotalk-extension-icon')!.textContent = transition ? '◌' : active ? '■' : '●';
     button.querySelector('.neotalk-extension-label')!.textContent = transition
-      ? (state.phase === 'stopping' ? 'Parando...' : 'Preparando...')
+      ? (state.phase === 'stopping' ? 'Parando...' : 'Cancelar')
       : active ? `Parar ${NAMES[mode].toLowerCase()}` : NAMES[mode];
   }
 
