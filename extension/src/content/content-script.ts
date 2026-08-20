@@ -38,7 +38,7 @@ function sendSelectedPhrase(frase: string): void {
   void chrome.runtime.sendMessage(message);
 }
 
-function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; textarea: HTMLTextAreaElement; sendButton: HTMLButtonElement; header: HTMLElement; video: HTMLIFrameElement; status: HTMLElement; menuButton: HTMLButtonElement; actions: HTMLElement; tabAudioButton: HTMLButtonElement; microphoneButton: HTMLButtonElement; minimizeButton: HTMLButtonElement; bubble: HTMLButtonElement } {
+function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; textarea: HTMLTextAreaElement; sendButton: HTMLButtonElement; header: HTMLElement; video: HTMLIFrameElement; avatarWindowButton: HTMLButtonElement; status: HTMLElement; menuButton: HTMLButtonElement; actions: HTMLElement; tabAudioButton: HTMLButtonElement; microphoneButton: HTMLButtonElement; minimizeButton: HTMLButtonElement; bubble: HTMLButtonElement } {
   const existingHost = document.getElementById(HOST_ID);
   if (existingHost?.shadowRoot) {
     const existingTooltip = existingHost.shadowRoot.querySelector<HTMLButtonElement>(`.${TOOLTIP_CLASS}`);
@@ -47,6 +47,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     const existingSendButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-selection-send');
     const existingHeader = existingHost.shadowRoot.querySelector<HTMLElement>('.neotalk-extension-panel-header');
     const existingVideo = existingHost.shadowRoot.querySelector<HTMLIFrameElement>('#neotalk-extension-avatar-frame');
+    const existingAvatarWindowButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-avatar-window');
     const existingStatus = existingHost.shadowRoot.querySelector<HTMLElement>('#neotalk-extension-status');
     const existingMenuButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-menu');
     const existingActions = existingHost.shadowRoot.querySelector<HTMLElement>('#neotalk-extension-actions');
@@ -54,8 +55,8 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     const existingMicrophoneButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-microphone');
     const existingMinimizeButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-minimize');
     const existingBubble = existingHost.shadowRoot.querySelector<HTMLButtonElement>('.neotalk-extension-bubble');
-    if (existingTooltip && existingPanel && existingTextarea && existingSendButton && existingHeader && existingVideo && existingStatus && existingMenuButton && existingActions && existingTabAudioButton && existingMicrophoneButton && existingMinimizeButton && existingBubble) {
-      return { tooltip: existingTooltip, panel: existingPanel, textarea: existingTextarea, sendButton: existingSendButton, header: existingHeader, video: existingVideo, status: existingStatus, menuButton: existingMenuButton, actions: existingActions, tabAudioButton: existingTabAudioButton, microphoneButton: existingMicrophoneButton, minimizeButton: existingMinimizeButton, bubble: existingBubble };
+    if (existingTooltip && existingPanel && existingTextarea && existingSendButton && existingHeader && existingVideo && existingAvatarWindowButton && existingStatus && existingMenuButton && existingActions && existingTabAudioButton && existingMicrophoneButton && existingMinimizeButton && existingBubble) {
+      return { tooltip: existingTooltip, panel: existingPanel, textarea: existingTextarea, sendButton: existingSendButton, header: existingHeader, video: existingVideo, avatarWindowButton: existingAvatarWindowButton, status: existingStatus, menuButton: existingMenuButton, actions: existingActions, tabAudioButton: existingTabAudioButton, microphoneButton: existingMicrophoneButton, minimizeButton: existingMinimizeButton, bubble: existingBubble };
     }
   }
 
@@ -148,7 +149,13 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
       .neotalk-extension-avatar-box:not(.expanded) { min-height: 150px; max-height: 180px; }
       #neotalk-extension-avatar-frame { width: 100%; height: 100%; min-height: inherit; border: 0; display: block; background: #ffffff; }
       [hidden] { display: none !important; }
+      .neotalk-extension-avatar-box { flex-direction: column; gap: 10px; }
       #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #475569; text-align: center; font-size: 13px; }
+      #neotalk-extension-avatar-window {
+        border: 0; border-radius: 12px; padding: 10px 14px;
+        background: #1d8eff; color: #ffffff;
+        font: 700 13px Arial, Helvetica, sans-serif; cursor: pointer;
+      }
       #neotalk-extension-status { min-height: 18px; color: #475569; font-size: 12px; }
       #neotalk-extension-actions[hidden] { display: none; }
       #neotalk-extension-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -198,6 +205,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         <div class="neotalk-extension-avatar-box">
           <iframe id="neotalk-extension-avatar-frame" title="Avatar 3D NeoTalk" allow="autoplay" hidden></iframe>
           <p id="neotalk-extension-avatar-placeholder">Avatar aguardando tradução.</p>
+          <button id="neotalk-extension-avatar-window" type="button" hidden>Abrir avatar em outra janela</button>
         </div>
         <div id="neotalk-extension-status" aria-live="polite"></div>
         <textarea id="neotalk-extension-selection-text" aria-label="Texto para traduzir, e transcrição ao vivo durante a captura" aria-live="polite" placeholder="Selecione um texto na página, digite aqui, ou ative o microfone."></textarea>
@@ -223,6 +231,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     sendButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-selection-send')!,
     header: shadow.querySelector<HTMLElement>('.neotalk-extension-panel-header')!,
     video: shadow.querySelector<HTMLIFrameElement>('#neotalk-extension-avatar-frame')!,
+    avatarWindowButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-avatar-window')!,
     status: shadow.querySelector<HTMLElement>('#neotalk-extension-status')!,
     menuButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-menu')!,
     actions: shadow.querySelector<HTMLElement>('#neotalk-extension-actions')!,
@@ -425,35 +434,121 @@ function postToAvatar(command: Record<string, unknown>): void {
   target.postMessage({ ...command, neotalkToken: avatarToken }, EXTENSION_ORIGIN);
 }
 
+/**
+ * Prazo para o avatar embutido dar sinal de vida.
+ *
+ * Quando o servidor do Avatar3D recusa o embutimento (o `frame-ancestors *` dele
+ * não cobre `chrome-extension://`), o Chrome desenha uma página de erro DENTRO do
+ * iframe e dispara `load` normalmente — de fora, e sendo outra origem, não há
+ * como ler o que aconteceu. O único sintoma observável é o `neotalk:ready` que
+ * nunca chega. Generoso de propósito: o Unity WebGL demora na primeira carga.
+ */
+const EMBED_READY_TIMEOUT_MS = 30_000;
+
+let embedTimer: number | undefined;
+/** O embutido foi recusado; as frases passam a ir para a janela separada. */
+let embedFailed = false;
+/** Guardado na montagem para o clique no botão ser síncrono — `window.open` fora de um gesto do usuário é bloqueado. */
+let avatarConfig: { base: string; avatar: string } = { base: DEFAULT_AVATAR3D_URL, avatar: 'lia' };
+let avatarWindow: Window | null = null;
+
+function placeholderElement(): HTMLElement | null {
+  return selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder') ?? null;
+}
+
 function mountAvatar(): void {
   avatarToken = crypto.randomUUID();
+  embedFailed = false;
+  selectionUi.avatarWindowButton.hidden = true;
   void (async () => {
     const preferences = await getPreferences();
     const base = (preferences.avatar3dUrl || DEFAULT_AVATAR3D_URL).replace(/\/+$/, '');
+    avatarConfig = { base, avatar: preferences.avatarName ?? 'lia' };
     const hash = new URLSearchParams({
       token: avatarToken,
       base,
-      avatar: preferences.avatarName ?? 'lia',
+      avatar: avatarConfig.avatar,
       // A ponte responde exatamente para esta origem, em vez de '*': a
       // transcrição do microfone passa por essas mensagens.
       parentOrigin: window.location.origin
     });
     selectionUi.video.src = `${chrome.runtime.getURL('src/avatar/avatar.html')}#${hash.toString()}`;
     selectionUi.video.hidden = false;
-    const placeholder = selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder');
+    const placeholder = placeholderElement();
     if (placeholder) placeholder.hidden = true;
+
+    window.clearTimeout(embedTimer);
+    embedTimer = window.setTimeout(reportEmbedFailure, EMBED_READY_TIMEOUT_MS);
   })();
 }
+
+/**
+ * O avatar embutido não subiu. Em vez de deixar as frases se acumularem em
+ * silêncio numa fila que nunca vai drenar, o balão diz o que houve e oferece a
+ * janela separada — que é página de topo e não sofre `frame-ancestors`.
+ */
+function reportEmbedFailure(): void {
+  if (embedFailed) return;
+  embedFailed = true;
+  signQueue.reset();
+  selectionUi.video.hidden = true;
+  selectionUi.video.removeAttribute('src');
+  const placeholder = placeholderElement();
+  if (placeholder) {
+    placeholder.hidden = false;
+    placeholder.textContent = 'Esta página não pôde exibir o avatar aqui dentro.';
+  }
+  selectionUi.avatarWindowButton.hidden = false;
+}
+
+function avatarWindowUrl(phrase: string): string {
+  const url = new URL('/widget', avatarConfig.base);
+  url.searchParams.set('avatar', avatarConfig.avatar);
+  url.searchParams.set('controls', '1');
+  if (phrase) url.searchParams.set('phrase', phrase);
+  return url.toString();
+}
+
+/**
+ * Manda a frase para a janela separada. Ela não aceita `postMessage` — o widget
+ * exige `event.source === window.parent`, e numa janela de topo o pai é ela
+ * mesma —, então cada frase entra recarregando a janela com `?phrase=`, que o
+ * widget já traduz sozinho ao abrir.
+ */
+function sendToAvatarWindow(phrase: string): void {
+  if (avatarWindow && !avatarWindow.closed) {
+    avatarWindow.location.href = avatarWindowUrl(phrase);
+    return;
+  }
+  selectionUi.status.textContent = 'Clique em "Abrir avatar em outra janela" para ver a tradução.';
+}
+
+selectionUi.avatarWindowButton.addEventListener('click', () => {
+  // Aberta dentro do gesto do usuário, senão o bloqueador de pop-up barra.
+  const phrase = sanitizePhrase(selectionUi.textarea.value, { maxChars: MAX_PHRASE_CHARS }) ?? '';
+  avatarWindow = window.open(avatarWindowUrl(phrase), 'neotalk-avatar', 'width=460,height=620');
+  if (!avatarWindow) {
+    selectionUi.status.textContent = 'O navegador bloqueou a janela. Autorize pop-ups para esta página.';
+    return;
+  }
+  selectionUi.status.textContent = '';
+});
 
 function unmountAvatar(): void {
   // Descarregar de verdade: o Unity WebGL é pesado, e o balão fechado não pode
   // continuar consumindo memória da aba.
+  window.clearTimeout(embedTimer);
   signQueue.reset();
   avatarToken = '';
+  embedFailed = false;
   selectionUi.video.removeAttribute('src');
   selectionUi.video.hidden = true;
-  const placeholder = selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder');
-  if (placeholder) placeholder.hidden = false;
+  selectionUi.avatarWindowButton.hidden = true;
+  const placeholder = placeholderElement();
+  if (placeholder) {
+    placeholder.hidden = false;
+    placeholder.textContent = 'Avatar aguardando tradução.';
+  }
 }
 
 /** Enfileira uma frase para o avatar, respeitando o limite do servidor. */
@@ -464,6 +559,10 @@ function signPhrase(raw: string): void {
     selectionUi.status.textContent = `Texto cortado em ${MAX_PHRASE_CHARS} caracteres, o limite do avatar.`;
   }
   if (!panelOpen) openPanel();
+  if (embedFailed) {
+    sendToAvatarWindow(phrase);
+    return;
+  }
   signQueue.enqueue(phrase);
 }
 
@@ -475,6 +574,8 @@ window.addEventListener('message', (event) => {
   console.log('NeoTalk [avatar]', data.type, data);
 
   if (data.type === 'neotalk:ready') {
+    // Chegou: o embutimento foi aceito, o prazo não precisa mais correr.
+    window.clearTimeout(embedTimer);
     signQueue.onReady();
     return;
   }

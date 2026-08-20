@@ -3,6 +3,7 @@
   "name": "NeoTalk Libras",
   "version": "1.4.8",
   "description": "Traduza textos e áudios do navegador para Libras com avatar NeoTalk.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjWQDyYWkfgKF+YGMwdRmGyCQxMrjvmKApL4IRjFZPaoiwWeC8GntPNb7RANPzG5n/EXJF2drUQUk3jVfTDqhLkqY5WQ/p48fqK6ZY3P4rVhfIm6Db2QRAULVyUZcxpFw4e6OdJ1wtd3aNy7UGgjDmLAnLNMdpth7xrRQzLF33Wz/YR/Zu4ZLlToFRUBwYtM1dJQZMTiCnOSlTzWB2uODpXCOcw1/UEzg5DNnugbH6yzvGmcXfw5Ipfb7YKUEJlv711Mm39DRoAiQNy6kIMvC8puELGvnmwDTS+rxQy1+LOfTwIb+utZ6w7s6bEYZJdGBpSrQjR988O2dvgkURtpbCwIDAQAB",
   "permissions": [
     "activeTab",
     "scripting",
