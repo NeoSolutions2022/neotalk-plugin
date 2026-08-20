@@ -139,12 +139,32 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         box-shadow: 0 10px 28px rgba(15, 23, 42, .30);
       }
       .neotalk-extension-panel-body { display: grid; gap: 8px; padding: 12px; }
-      .neotalk-extension-avatar-box { min-height: 150px; border-radius: 14px; overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center; }
-      .neotalk-extension-avatar-box:not(.expanded) { min-height: 100px; max-height: 130px; }
-      #neotalk-extension-avatar-video { width: 100%; height: auto; max-height: 210px; display: block; background: #000; }
+      /* Avatar box agora contém vídeo E legenda, tudo junto. */
+      .neotalk-extension-avatar-box {
+        min-height: 180px;
+        border-radius: 14px;
+        overflow: hidden;
+        background: #0f172a;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #cbd5e1;
+      }
+      .neotalk-extension-avatar-box:not(.expanded) { min-height: 150px; max-height: 180px; }
+      /* Vídeo fica em cima e cresce para preencher. */
+      #neotalk-extension-avatar-video { width: 100%; height: auto; flex: 1; display: block; background: #000; min-height: 100px; }
       [hidden] { display: none !important; }
-      #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #e2e8f0; text-align: center; font-size: 13px; }
-      #neotalk-extension-caption { min-height: 34px; padding: 8px; border-radius: 10px; background: #f8fafc; border: 1px solid #cbd5e1; color: #0f172a; line-height: 1.35; }
+      /* Placeholder idem. */
+      #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #e2e8f0; text-align: center; font-size: 13px; flex: 1; display: flex; align-items: center; justify-content: center; }
+      /* Caption agora fica EMBAIXO do vídeo, dentro da mesma caixa. */
+      #neotalk-extension-caption {
+        min-height: 40px;
+        padding: 8px;
+        background: #ffffff;
+        border-top: 1px solid #cbd5e1;
+        color: #0f172a;
+        line-height: 1.35;
+        flex-shrink: 0;
+      }
       /* Texto ainda em reconhecimento: vai mudar antes de virar definitivo. */
       .neotalk-extension-caption-partial { color: #64748b; font-style: italic; }
       #neotalk-extension-status { min-height: 18px; color: #475569; font-size: 12px; }
@@ -196,8 +216,8 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         <div class="neotalk-extension-avatar-box">
           <video id="neotalk-extension-avatar-video" autoplay muted loop controls playsinline hidden></video>
           <p id="neotalk-extension-avatar-placeholder">Avatar aguardando tradução.</p>
+          <div id="neotalk-extension-caption" aria-live="polite">Selecione um texto na página...</div>
         </div>
-        <div id="neotalk-extension-caption" aria-live="polite">Selecione um texto na página...</div>
         <div id="neotalk-extension-status" aria-live="polite"></div>
         <textarea id="neotalk-extension-selection-text" aria-label="Texto selecionado para traduzir" placeholder="Selecione um texto na página..."></textarea>
         <button id="neotalk-extension-selection-send" type="button">Traduzir para Libras</button>
