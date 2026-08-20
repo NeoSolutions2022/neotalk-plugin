@@ -435,17 +435,29 @@ function postToAvatar(command: Record<string, unknown>): void {
 }
 
 /**
- * Prazo para o avatar embutido dar sinal de vida.
+ * Dois prazos, porque são duas falhas diferentes — e confundi-las custa caro.
  *
- * Quando o servidor do Avatar3D recusa o embutimento (o `frame-ancestors *` dele
- * não cobre `chrome-extension://`), o Chrome desenha uma página de erro DENTRO do
- * iframe e dispara `load` normalmente — de fora, e sendo outra origem, não há
- * como ler o que aconteceu. O único sintoma observável é o `neotalk:ready` que
- * nunca chega. Generoso de propósito: o Unity WebGL demora na primeira carga.
+ * Quando o embutimento é RECUSADO (foi o caso enquanto o `/widget` respondia
+ * `frame-ancestors *`, que não cobre `chrome-extension://`), o Chrome desenha uma
+ * página de erro DENTRO do iframe e dispara `load` normalmente; de fora, sendo
+ * outra origem, não há como ler o que aconteceu. O sintoma é não chegar mensagem
+ * NENHUMA da ponte — o frame nem executa.
+ *
+ * Já o Unity apenas LENTO se anuncia: o widget emite `neotalk:status` com
+ * `loading_avatar` antes de começar a baixar o modelo. Ou seja, a primeira
+ * mensagem qualquer já prova que o embutimento foi aceito, e a partir dela só
+ * resta esperar.
+ *
+ * Por isso o prazo curto mede "recusado" e é cancelado por qualquer mensagem, e
+ * o prazo longo cobre o "aceitou mas travou no meio da carga". Um prazo único
+ * esperando por `neotalk:ready` puniria a primeira carga do Unity, que baixa
+ * dezenas de megabytes e passa de 30 s numa conexão comum.
  */
-const EMBED_READY_TIMEOUT_MS = 30_000;
+const EMBED_REFUSED_TIMEOUT_MS = 10_000;
+const EMBED_STALLED_TIMEOUT_MS = 90_000;
 
 let embedTimer: number | undefined;
+let embedStallTimer: number | undefined;
 /** O embutido foi recusado; as frases passam a ir para a janela separada. */
 let embedFailed = false;
 /** Guardado na montagem para o clique no botão ser síncrono — `window.open` fora de um gesto do usuário é bloqueado. */
@@ -478,7 +490,9 @@ function mountAvatar(): void {
     if (placeholder) placeholder.hidden = true;
 
     window.clearTimeout(embedTimer);
-    embedTimer = window.setTimeout(reportEmbedFailure, EMBED_READY_TIMEOUT_MS);
+    window.clearTimeout(embedStallTimer);
+    embedTimer = window.setTimeout(reportEmbedFailure, EMBED_REFUSED_TIMEOUT_MS);
+    embedStallTimer = window.setTimeout(reportEmbedFailure, EMBED_STALLED_TIMEOUT_MS);
   })();
 }
 
@@ -490,6 +504,8 @@ function mountAvatar(): void {
 function reportEmbedFailure(): void {
   if (embedFailed) return;
   embedFailed = true;
+  window.clearTimeout(embedTimer);
+  window.clearTimeout(embedStallTimer);
   signQueue.reset();
   selectionUi.video.hidden = true;
   selectionUi.video.removeAttribute('src');
@@ -538,6 +554,7 @@ function unmountAvatar(): void {
   // Descarregar de verdade: o Unity WebGL é pesado, e o balão fechado não pode
   // continuar consumindo memória da aba.
   window.clearTimeout(embedTimer);
+  window.clearTimeout(embedStallTimer);
   signQueue.reset();
   avatarToken = '';
   embedFailed = false;
@@ -573,9 +590,14 @@ window.addEventListener('message', (event) => {
 
   console.log('NeoTalk [avatar]', data.type, data);
 
+  // Chegou mensagem: o frame executou, logo o embutimento foi ACEITO. Vale para
+  // qualquer tipo — o widget manda `loading_avatar` antes de baixar o Unity, e é
+  // isso que separa "lento" de "recusado". Só o prazo longo, contra travamento
+  // no meio da carga, continua correndo até o `ready`.
+  window.clearTimeout(embedTimer);
+
   if (data.type === 'neotalk:ready') {
-    // Chegou: o embutimento foi aceito, o prazo não precisa mais correr.
-    window.clearTimeout(embedTimer);
+    window.clearTimeout(embedStallTimer);
     signQueue.onReady();
     return;
   }
