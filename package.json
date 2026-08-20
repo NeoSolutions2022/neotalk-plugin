@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc && npm run build:offscreen && npm run build:content",
+    "postbuild": "npm run verify:dist",
+    "rebuild": "npm run clean && npm run build",
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "clean": "node -e \"require('node:fs').rmSync('extension/dist',{recursive:true,force:true})\"",
     "build:offscreen": "esbuild extension/src/offscreen/offscreen.ts --bundle --outfile=extension/dist/offscreen/offscreen.js --format=esm --platform=browser",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"extension/src/**/*.ts\"",

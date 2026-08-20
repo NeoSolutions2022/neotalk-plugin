@@ -58,6 +58,16 @@ test('quem fala sem pausa ainda e cortado, para nao gerar bloco infinito', () =>
   assert.equal(ends[0], true);
 });
 
+// O padrao era 20s: falando corrido, o texto so aparecia na tela depois de
+// vinte segundos, porque o modelo so recebe o audio quando o trecho fecha.
+test('o corte forcado padrao entrega texto em poucos segundos', () => {
+  const { ends, feed } = build();
+  feed(VOICE, 4_500);
+  assert.deepEqual(ends, [], 'ainda dentro do limite padrao');
+  feed(VOICE, 1_000);
+  assert.deepEqual(ends, [true], 'fechou por volta dos 5s, sem esperar pausa');
+});
+
 test('falas separadas por pausa viram trechos separados', () => {
   const { ends, feed } = build({ silenceMs: 400, minSpeechMs: 200 });
   feed(VOICE, 600);

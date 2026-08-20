@@ -1,4 +1,8 @@
 import { isActiveFor, isTransitional, reconcile } from '../shared/capture-guard.js';
+import { captureErrorMessage } from '../shared/messages.js';
+import { addDeveloperError, clearCaptionState } from '../shared/storage.js';
+import { EXTENSION_HOST_ID } from './page-audio-utils.js';
+import { isPageAudioActive, startPageAudioCapture, stopPageAudioCapture } from './page-audio.js';
 import type { AudioCaptureMode, AudioCaptureState } from '../shared/types.js';
 
 type NeoTalkSelectionMessage = {
@@ -8,9 +12,9 @@ type NeoTalkSelectionMessage = {
 };
 
 type SelectionPreferences = { selectionModeEnabled?: boolean; autoSubmitSelection?: boolean; captionsEnabled?: boolean; avatarExpanded?: boolean };
-type CaptionState = { caption?: string; status?: string; fileUrl?: string; error?: string };
+type CaptionState = { caption?: string; partialCaption?: string; status?: string; fileUrl?: string; error?: string };
 
-const HOST_ID = 'neotalk-extension-selection-host';
+const HOST_ID = EXTENSION_HOST_ID;
 const TOOLTIP_CLASS = 'neotalk-extension-tooltip';
 const PANEL_CLASS = 'neotalk-extension-panel';
 let selectedPhrase = '';
@@ -65,7 +69,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         border: 0;
         border-radius: 999px;
         padding: 10px 14px;
-        background: linear-gradient(135deg, #1447e6, #7c3aed);
+        background: linear-gradient(135deg, #1d8eff, #0f6fe0);
         color: #ffffff;
         font: 700 13px Arial, Helvetica, sans-serif;
         cursor: pointer;
@@ -77,7 +81,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         bottom: 18px;
         z-index: 2147483646;
         width: min(340px, calc(100vw - 24px));
-        border: 1px solid rgba(20, 71, 230, .18);
+        border: 1px solid rgba(29, 142, 255, .22);
         border-radius: 18px;
         background: #ffffff;
         color: #0f172a;
@@ -85,13 +89,22 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         overflow: hidden;
         font: 14px Arial, Helvetica, sans-serif;
       }
+      .neotalk-extension-panel-brand {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 12px 8px;
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+      }
       .neotalk-extension-panel-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 8px;
-        padding: 10px 12px;
-        background: linear-gradient(135deg, #1447e6, #7c3aed);
+        padding: 8px 12px;
+        background: linear-gradient(135deg, #1d8eff, #0f6fe0);
         color: #ffffff;
         font-weight: 800;
         cursor: move;
@@ -119,7 +132,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         height: 52px;
         border-radius: 50%;
         border: 0;
-        background: linear-gradient(135deg, #1447e6, #7c3aed);
+        background: linear-gradient(135deg, #1d8eff, #0f6fe0);
         color: #ffffff;
         font: 800 20px Arial, Helvetica, sans-serif;
         cursor: pointer;
@@ -132,6 +145,8 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
       [hidden] { display: none !important; }
       #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #e2e8f0; text-align: center; font-size: 13px; }
       #neotalk-extension-caption { min-height: 34px; padding: 8px; border-radius: 10px; background: #f8fafc; border: 1px solid #cbd5e1; color: #0f172a; line-height: 1.35; }
+      /* Texto ainda em reconhecimento: vai mudar antes de virar definitivo. */
+      .neotalk-extension-caption-partial { color: #64748b; font-style: italic; }
       #neotalk-extension-status { min-height: 18px; color: #475569; font-size: 12px; }
       #neotalk-extension-actions[hidden] { display: none; }
       #neotalk-extension-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -139,11 +154,13 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         display: inline-flex; align-items: center; justify-content: center; gap: 6px;
         min-height: 44px; padding: 0 10px; border: 0; border-radius: 12px;
         color: #ffffff; font: 700 13px Arial, Helvetica, sans-serif; cursor: pointer;
+        transition: background-color .15s ease;
       }
       .neotalk-extension-capture .neotalk-extension-icon { font-size: 11px; line-height: 1; }
-      .neotalk-extension-capture.is-idle { background: #067647; }
-      .neotalk-extension-capture.is-transition { background: #b54708; cursor: progress; }
-      .neotalk-extension-capture.is-active { background: #b42318; }
+      /* Ocioso: azul da marca. Ativo (clique para parar): preto. */
+      .neotalk-extension-capture.is-idle { background: #1d8eff; }
+      .neotalk-extension-capture.is-transition { background: #475569; cursor: progress; }
+      .neotalk-extension-capture.is-active { background: #000000; }
       .neotalk-extension-capture[disabled] { opacity: .9; }
       #neotalk-extension-selection-text {
         width: 100%;
@@ -160,20 +177,10 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         border: 0;
         border-radius: 12px;
         padding: 10px 12px;
-        background: #1447e6;
+        background: #1d8eff;
         color: #ffffff;
         font-weight: 800;
         cursor: pointer;
-      }
-      #neotalk-extension-tab-audio {
-        border: 0;
-        border-radius: 12px;
-        padding: 10px 12px;
-        background: #16a34a;
-        color: #ffffff;
-        font-weight: 800;
-        cursor: pointer;
-        transition: background-color .15s ease;
       }
       .neotalk-extension-helper { margin: 0; color: #475569; font-size: 12px; line-height: 1.35; }
       .${TOOLTIP_CLASS}:focus-visible, #neotalk-extension-selection-text:focus-visible, #neotalk-extension-selection-send:focus-visible, #neotalk-extension-menu:focus-visible, #neotalk-extension-tab-audio:focus-visible, #neotalk-extension-minimize:focus-visible, .neotalk-extension-bubble:focus-visible {
@@ -183,6 +190,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     </style>
     <button class="${TOOLTIP_CLASS}" type="button" aria-label="Traduzir texto selecionado para Libras">Traduzir para Libras</button>
     <aside class="${PANEL_CLASS}" aria-label="NeoTalk modo seleção">
+      <div class="neotalk-extension-panel-brand"><svg width="28" height="22" viewBox="0 0 40 30" aria-hidden="true" focusable="false"><rect x="2" y="2" width="16" height="20" rx="6" fill="#1d8eff"/><path d="M6 20 L6 26 L11.5 20 Z" fill="#1d8eff"/><circle cx="10" cy="11" r="2.6" fill="#ffffff"/><rect x="22" y="2" width="16" height="20" rx="6" fill="#1d8eff"/><path d="M34 20 L34 26 L28.5 20 Z" fill="#1d8eff"/><circle cx="30" cy="11" r="2.6" fill="#ffffff"/></svg><strong style="font: 800 16px Arial, Helvetica, sans-serif; color: #0f172a; letter-spacing: -.02em;">NeoTalk</strong></div>
       <div class="neotalk-extension-panel-header"><span class="neotalk-extension-panel-title">NeoTalk seleção <small>arraste</small></span><button id="neotalk-extension-minimize" type="button" aria-label="Minimizar painel">−</button><button id="neotalk-extension-menu" type="button" aria-label="Abrir ações">⋯</button></div>
       <div class="neotalk-extension-panel-body">
         <div class="neotalk-extension-avatar-box">
@@ -229,13 +237,24 @@ const selectionUi = createSelectionUi();
 selectionUi.tooltip.style.display = 'none';
 
 let isMinimized = false;
+/**
+ * O balão começa fechado em toda página e não é persistido: abrir é sempre um
+ * ato explícito, pelo popup da extensão ou pelo tooltip de seleção. Antes ele
+ * era criado e exibido em `<all_urls>`, aparecendo sozinho em tudo que abria.
+ */
+let panelOpen = false;
 
 function updatePanelVisibility(): void {
   if (isMinimized) return;
-  selectionUi.panel.style.display = selectionModeEnabled ? 'block' : 'none';
+  selectionUi.panel.style.display = panelOpen ? 'block' : 'none';
 }
 
 function updateMinimizedState(): void {
+  if (!panelOpen) {
+    selectionUi.panel.style.display = 'none';
+    selectionUi.bubble.hidden = true;
+    return;
+  }
   if (isMinimized) {
     selectionUi.panel.style.display = 'none';
     selectionUi.bubble.hidden = false;
@@ -245,9 +264,35 @@ function updateMinimizedState(): void {
   }
 }
 
+/**
+ * Junta o texto já confirmado com o que ainda está sendo reconhecido. A prévia
+ * entra em itálico esmaecido, para ficar claro que aquilo ainda vai mudar.
+ */
+function renderCaption(state: CaptionState): void {
+  const confirmed = state.caption ?? '';
+  const preview = state.partialCaption ?? '';
+  selectionUi.caption.textContent = '';
+
+  if (!confirmed && !preview) {
+    selectionUi.caption.textContent = 'Selecione um texto na página...';
+    return;
+  }
+
+  if (confirmed) selectionUi.caption.append(confirmed);
+  if (!preview) return;
+
+  const previewNode = document.createElement('span');
+  previewNode.className = 'neotalk-extension-caption-partial';
+  previewNode.textContent = confirmed ? ` ${preview}` : preview;
+  selectionUi.caption.append(previewNode);
+}
+
 function updateOverlayState(state: CaptionState): void {
-  selectionUi.caption.textContent = state.caption || 'Selecione um texto na página...';
+  lastCaptionState = state;
+  renderCaption(state);
+  console.log('NeoTalk [balão]', { confirmado: state.caption, parcial: state.partialCaption ?? '', status: state.error || state.status || '' });
   selectionUi.status.textContent = state.error || state.status || '';
+  applyTextareaLock();
   if (state.fileUrl) {
     selectionUi.video.src = state.fileUrl;
     selectionUi.video.autoplay = true;
@@ -260,7 +305,17 @@ function updateOverlayState(state: CaptionState): void {
     selectionUi.video.hidden = false;
     selectionUi.video.load();
     void selectionUi.video.play().catch(() => undefined);
+    return;
   }
+  // Sem vídeo no estado, o avatar precisa sumir. Sem este ramo, o `fileUrl` da
+  // última tradução (que fica em `chrome.storage.local`) voltava a tocar em
+  // loop, sozinho, em toda página carregada.
+  selectionUi.video.pause();
+  selectionUi.video.removeAttribute('src');
+  selectionUi.video.load();
+  selectionUi.video.hidden = true;
+  const placeholder = selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder');
+  if (placeholder) placeholder.hidden = false;
 }
 
 function applyPreferences(preferences?: SelectionPreferences): void {
@@ -268,16 +323,39 @@ function applyPreferences(preferences?: SelectionPreferences): void {
   autoSubmitSelection = preferences?.autoSubmitSelection ?? false;
   selectionUi.caption.hidden = preferences?.captionsEnabled === false;
   selectionUi.video.parentElement?.classList.toggle('expanded', preferences?.avatarExpanded ?? true);
-  updatePanelVisibility();
+  // `selectionModeEnabled` governa só o tooltip de seleção; quem abre e fecha o
+  // balão é `panelOpen`.
+  updateMinimizedState();
 }
 
 let captureState: AudioCaptureState = { phase: 'inactive', updatedAt: 0 };
 let captureWatchdog: number | undefined;
 let currentTabId: number | null = null;
+let lastCaptionState: CaptionState = {};
+
+/**
+ * Enquanto microfone ou áudio da aba estiverem capturando nesta aba, a
+ * transcrição ao vivo (campo `caption`, que acumula frase por frase) aparece
+ * direto na caixa de seleção, travada para não perder texto se o usuário
+ * mexer nela sem querer. Some a captura, a caixa libera de novo.
+ *
+ * Chamada tanto quando a legenda muda quanto quando o estado de captura
+ * muda — são dois eventos de storage independentes, e a caixa precisa
+ * destravar assim que a captura para, mesmo sem uma legenda nova chegando
+ * junto.
+ */
+function applyTextareaLock(): void {
+  const capturing = isActiveFor(captureState, 'microphone', currentTabId) || isActiveFor(captureState, 'tab', currentTabId);
+  selectionUi.textarea.readOnly = capturing;
+  // A prévia entra junto: é o que mantém a caixa acompanhando a fala em tempo
+  // real. Ela some sozinha quando o texto confirmado daquele trecho chega.
+  if (capturing) selectionUi.textarea.value = [lastCaptionState.caption, lastCaptionState.partialCaption].filter(Boolean).join(' ');
+}
 
 function updateAudioCaptureState(state?: AudioCaptureState): void {
   captureState = state ?? { phase: 'inactive', updatedAt: Date.now() };
   renderCaptureButtons();
+  applyTextareaLock();
 }
 
 function loadOverlayState(): void {
@@ -302,6 +380,7 @@ void chrome.runtime.sendMessage({ type: 'NEOTALK_WHICH_TAB' }).then(
   () => undefined
 );
 
+updateMinimizedState();
 loadSelectionModePreference();
 loadOverlayState();
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -313,6 +392,73 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     updateOverlayState((changes.neotalkCaptionState.newValue as CaptionState | undefined) ?? {});
   }
   if (areaName === 'local' && changes.neotalkAudioCaptureState) updateAudioCaptureState(changes.neotalkAudioCaptureState.newValue as AudioCaptureState | undefined);
+});
+
+/**
+ * Abrir o balão sempre parte do zero: sem legenda antiga, sem vídeo tocando e
+ * sem texto no campo. O estado de legenda vive em `chrome.storage.local` e era
+ * restaurado em toda página, trazendo de volta a última tradução (e disparando
+ * o vídeo em loop) sem ninguém pedir.
+ */
+function openPanel(): void {
+  panelOpen = true;
+  isMinimized = false;
+  selectionUi.textarea.value = '';
+  selectedPhrase = '';
+  lastAutoSubmittedPhrase = '';
+  updateOverlayState({});
+  void clearCaptionState();
+  updateMinimizedState();
+}
+
+function closePanel(): void {
+  panelOpen = false;
+  updateMinimizedState();
+}
+
+/**
+ * Liga o áudio da aba por `captureStream()`, aqui dentro da própria página.
+ *
+ * Usada por dois caminhos: o botão do balão e, via `NEOTALK_START_PAGE_AUDIO`,
+ * o botão do popup — que antes caía no `tabCapture` do service worker e só
+ * entregava texto no fechamento do trecho (até 5 s), enquanto o balão já
+ * mostrava prévias a cada 1,2 s. O mesmo botão se comportava de dois jeitos
+ * conforme onde era clicado.
+ */
+async function startPageAudio(): Promise<{ ok: boolean; error?: string }> {
+  // O microfone roda no documento offscreen, sem o balão saber disso sozinho —
+  // se estiver ativo, para primeiro. Sem isto, os dois ficavam rodando ao mesmo
+  // tempo, disputando o mesmo documento.
+  if (isActiveFor(reconcile(captureState, Date.now()), 'microphone', currentTabId)) {
+    await chrome.runtime.sendMessage({ type: 'NEOTALK_STOP_MICROPHONE' });
+  }
+  return startPageAudioCapture(currentTabId);
+}
+
+chrome.runtime.onMessage.addListener((message: { type?: string }, _sender, sendResponse) => {
+  if (message?.type === 'NEOTALK_TOGGLE_PANEL') {
+    if (panelOpen) closePanel();
+    else openPanel();
+    sendResponse({ open: panelOpen });
+    return false;
+  }
+  if (message?.type === 'NEOTALK_GET_PANEL_STATE') {
+    sendResponse({ open: panelOpen });
+    return false;
+  }
+  // O service worker pergunta antes de usar o `tabCapture`: se esta página tem
+  // um elemento de mídia tocando, a captura ao vivo acontece aqui.
+  if (message?.type === 'NEOTALK_START_PAGE_AUDIO') {
+    void startPageAudio().then(sendResponse, (error: unknown) => {
+      sendResponse({ ok: false, error: error instanceof Error ? error.message : 'page-audio-start-failed' });
+    });
+    return true;
+  }
+  if (message?.type === 'NEOTALK_STOP_PAGE_AUDIO') {
+    void stopPageAudioCapture().then(() => sendResponse({ ok: true }), () => sendResponse({ ok: true }));
+    return true;
+  }
+  return false;
 });
 
 function hideTooltip(): void {
@@ -372,6 +518,10 @@ document.addEventListener('keyup', (event) => {
 selectionUi.tooltip.addEventListener('mousedown', (event) => event.preventDefault());
 selectionUi.tooltip.addEventListener('click', () => {
   const frase = selectedPhrase || getSelectedText();
+  // Abrir antes de enviar: `openPanel` limpa o estado, e a tradução que chega em
+  // seguida precisa sobreviver a essa limpeza.
+  if (!panelOpen) openPanel();
+  selectionUi.textarea.value = frase;
   sendSelectedPhrase(frase);
   hideTooltip();
 });
@@ -423,15 +573,45 @@ function renderCaptureButtons(): void {
   if (isTransitional(state.phase)) captureWatchdog = window.setTimeout(renderCaptureButtons, 1_000);
 }
 
+function displayCaptureError(error: string | undefined, mode: AudioCaptureMode): void {
+  // Sem erro a linha precisa ser LIMPA, não ignorada: antes, o erro de um clique
+  // ficava na tela e reaparecia no clique seguinte em outro botão — foi o que fez
+  // parecer que o microfone também estava quebrado.
+  const text = captureErrorMessage(error, mode === 'tab' ? 'tab' : 'microphone');
+  selectionUi.status.textContent = text;
+  if (error && text !== error) void addDeveloperError(text, error);
+}
+
 for (const button of captureButtons()) {
   button.addEventListener('click', () => {
     if (button.disabled) return;
     const mode = button.dataset.mode as AudioCaptureMode;
     const active = isActiveFor(reconcile(captureState, Date.now()), mode, currentTabId);
-    const type = active ? STOP_MESSAGES[mode] : START_MESSAGES[mode];
-    void chrome.runtime.sendMessage({ type }).then((response: { ok?: boolean; error?: string }) => {
-      if (!response?.ok && response?.error) selectionUi.status.textContent = response.error;
-    });
+
+    if (mode === 'tab') {
+      void (async () => {
+        if (active) {
+          await stopPageAudioCapture();
+          return;
+        }
+        const response = await startPageAudio();
+        displayCaptureError(response.error, 'tab');
+      })();
+      return;
+    }
+
+    void (async () => {
+      // O áudio da aba pelo balão roda inteiramente aqui na página — o
+      // service worker não tem como pará-lo sozinho (só conhece o caminho
+      // antigo, via tabCapture, usado pelo popup). Sem isto, ligar o
+      // microfone enquanto o áudio da aba do balão está ativo deixava os
+      // dois rodando ao mesmo tempo, disputando o mesmo documento offscreen
+      // — a causa real do erro de contexto que aparecia no console.
+      if (!active && mode === 'microphone' && isPageAudioActive()) await stopPageAudioCapture();
+      const type = active ? STOP_MESSAGES[mode] : START_MESSAGES[mode];
+      const response = await chrome.runtime.sendMessage({ type });
+      displayCaptureError(response?.ok ? undefined : (response?.error ?? ''), mode);
+    })();
   });
 }
 

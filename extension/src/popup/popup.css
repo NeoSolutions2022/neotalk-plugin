@@ -82,6 +82,13 @@ h1 {
   box-shadow: 0 6px 18px rgba(15, 23, 42, .06);
 }
 
+/* Texto ainda em reconhecimento, que vai ser substituído. Mesmas cor e ênfase
+   que o balão usa, para os dois lugares mostrarem a mesma coisa do mesmo jeito. */
+.neotalk-extension-caption-partial {
+  color: #64748b;
+  font-style: italic;
+}
+
 .neotalk-extension-input {
   width: 100%;
   min-height: 76px;

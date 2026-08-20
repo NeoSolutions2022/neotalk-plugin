@@ -3,7 +3,6 @@ import type { DeveloperError, ExtensionPreferences } from '../shared/types.js';
 
 const form = document.querySelector<HTMLFormElement>('#optionsForm')!;
 const proxyUrl = document.querySelector<HTMLInputElement>('#proxyUrl')!;
-const autoWelcomeEnabled = document.querySelector<HTMLInputElement>('#autoWelcomeEnabled')!;
 const captionsEnabled = document.querySelector<HTMLInputElement>('#captionsEnabled')!;
 const avatarExpanded = document.querySelector<HTMLInputElement>('#avatarExpanded')!;
 const selectionModeEnabled = document.querySelector<HTMLInputElement>('#selectionModeEnabled')!;
@@ -32,10 +31,25 @@ async function renderDeveloperErrors(): Promise<void> {
   developerErrors.textContent = formatDeveloperErrors(await getDeveloperErrors());
 }
 
+const PERMISSION_LABELS: Record<PermissionState | 'unknown', string> = {
+  granted: 'Microfone já autorizado. Você pode usar o botão de microfone na extensão.',
+  denied: 'Microfone bloqueado nas configurações do navegador. Libere o acesso e clique em "Autorizar microfone" de novo.',
+  prompt: 'Microfone ainda não autorizado. Clique em "Autorizar microfone" para liberar.',
+  unknown: ''
+};
+
+async function renderMicrophonePermissionState(): Promise<void> {
+  try {
+    const status = await navigator.permissions.query({ name: 'microphone' as any });
+    microphonePermissionStatus.textContent = PERMISSION_LABELS[status.state];
+  } catch {
+    // API indisponível neste navegador: sem estado prévio para mostrar.
+  }
+}
+
 async function loadOptions(): Promise<void> {
   const preferences = await getPreferences();
   proxyUrl.value = preferences.proxyUrl;
-  autoWelcomeEnabled.checked = preferences.autoWelcomeEnabled;
   captionsEnabled.checked = preferences.captionsEnabled;
   avatarExpanded.checked = preferences.avatarExpanded;
   selectionModeEnabled.checked = preferences.selectionModeEnabled;
@@ -44,6 +58,7 @@ async function loadOptions(): Promise<void> {
   apiKey.value = preferences.apiKey;
   apiKey.disabled = !preferences.developerMode;
   await renderDeveloperErrors();
+  await renderMicrophonePermissionState();
 }
 
 form.addEventListener('submit', (event) => {
@@ -61,7 +76,6 @@ form.addEventListener('submit', (event) => {
   }
   const preferences: ExtensionPreferences = {
     proxyUrl: normalizedUrl,
-    autoWelcomeEnabled: autoWelcomeEnabled.checked,
     captionsEnabled: captionsEnabled.checked,
     avatarExpanded: avatarExpanded.checked,
     selectionModeEnabled: selectionModeEnabled.checked,
@@ -99,6 +113,7 @@ microphonePermissionButton.addEventListener('click', () => {
     } catch (error) {
       console.warn('NeoTalk: falha ao autorizar microfone.', error);
       microphonePermissionStatus.textContent = 'Não foi possível autorizar o microfone. Verifique as permissões do navegador e tente novamente.';
+      await renderMicrophonePermissionState();
     }
   })();
 });

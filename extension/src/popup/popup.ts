@@ -1,7 +1,7 @@
 import { updateAvatarVideo } from '../shared/avatar.js';
 import { renderCaptionState } from '../shared/captions.js';
 import { MESSAGES } from '../shared/messages.js';
-import { AUDIO_CAPTURE_STATE_KEY, CAPTION_STATE_KEY, getAudioCaptureState, getCaptionState, getPreferences, getSelectedText, getSessionTranscript, markWelcomeSent, saveCaptionState, savePreferences, wasWelcomeSent } from '../shared/storage.js';
+import { AUDIO_CAPTURE_STATE_KEY, CAPTION_STATE_KEY, getAudioCaptureState, getCaptionState, getPreferences, getSelectedText, getSessionTranscript, saveCaptionState, savePreferences } from '../shared/storage.js';
 import type { CaptureResponse, RuntimeMessage } from '../shared/types.js';
 
 const captionElement = document.querySelector<HTMLElement>('#caption')!;
@@ -13,6 +13,7 @@ const tabAudioButton = document.querySelector<HTMLButtonElement>('#tabAudioButto
 const microphoneButton = document.querySelector<HTMLButtonElement>('#microphoneButton')!;
 const selectionModeButton = document.querySelector<HTMLButtonElement>('#selectionModeButton')!;
 const downloadTranscriptButton = document.querySelector<HTMLButtonElement>('#downloadTranscriptButton')!;
+const togglePanelButton = document.querySelector<HTMLButtonElement>('#togglePanelButton')!;
 
 async function refreshUi(): Promise<void> {
   const state = await getCaptionState();
@@ -53,12 +54,40 @@ async function submitManualPhrase(): Promise<void> {
   await sendRuntimeMessage({ type: 'NEOTALK_SUBMIT_PHRASE', frase, source: 'manual' });
 }
 
-async function sendWelcomeOnce(): Promise<void> {
-  const preferences = await getPreferences();
-  if (!preferences.autoWelcomeEnabled || await wasWelcomeSent()) return;
-  await markWelcomeSent();
-  await sendRuntimeMessage({ type: 'NEOTALK_SUBMIT_PHRASE', frase: 'Seja bem-vindo' /* também atende ao fluxo inicial de boas-vindas ao abrir a extensão */, source: 'welcome' });
+/**
+ * O balão vive dentro da página, então quem sabe se ele está aberto é o content
+ * script daquela aba. Páginas internas do Chrome não aceitam content script — aí
+ * não há balão para abrir, e o botão fica desabilitado em vez de falhar calado.
+ */
+async function askPanel(type: 'NEOTALK_TOGGLE_PANEL' | 'NEOTALK_GET_PANEL_STATE'): Promise<{ open: boolean } | null> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return null;
+  try {
+    return (await chrome.tabs.sendMessage(tab.id, { type })) as { open: boolean };
+  } catch {
+    return null;
+  }
 }
+
+function renderPanelButton(state: { open: boolean } | null): void {
+  togglePanelButton.disabled = state === null;
+  togglePanelButton.textContent = state === null
+    ? 'Balão indisponível nesta página'
+    : state.open ? 'Fechar balão' : 'Abrir balão';
+}
+
+async function refreshPanelButton(): Promise<void> {
+  renderPanelButton(await askPanel('NEOTALK_GET_PANEL_STATE'));
+}
+
+togglePanelButton.addEventListener('click', () => {
+  void (async () => {
+    const state = await askPanel('NEOTALK_TOGGLE_PANEL');
+    renderPanelButton(state);
+    // Abriu: sair da frente para o usuário ver o balão na página.
+    if (state?.open) window.close();
+  })();
+});
 
 document.querySelector('#translateButton')?.addEventListener('click', () => void submitManualPhrase());
 
@@ -104,4 +133,5 @@ downloadTranscriptButton.addEventListener('click', () => {
   });
 });
 
-void refreshUi().then(sendWelcomeOnce);
+void refreshUi();
+void refreshPanelButton();

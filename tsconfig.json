@@ -4,6 +4,11 @@
     "module": "ES2022",
     "moduleResolution": "Bundler",
     "strict": true,
+    // Sem isto, um erro de tipo ainda emite dist/content/content-script.js como
+    // ESM. Content script do MV3 é script clássico: morre na primeira linha com
+    // "Cannot use import statement outside a module", e o erro de compilação
+    // vira extensão morta em silêncio.
+    "noEmitOnError": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "outDir": "extension/dist",

@@ -30,7 +30,11 @@ const DEFAULTS: Required<SegmenterOptions> = {
   threshold: 0.012,
   silenceMs: 700,
   minSpeechMs: 350,
-  maxSegmentMs: 20_000,
+  // Rede de segurança para fala corrida. Eram 20 s: quem falava sem pausa
+  // ficava vinte segundos sem ver nada na tela, porque só o fechamento do
+  // trecho manda o áudio para o modelo. As prévias já cobrem esse intervalo,
+  // mas o texto definitivo (o que vira tradução) não pode depender delas.
+  maxSegmentMs: 5_000,
   idleFlushMs: 30_000
 };
 

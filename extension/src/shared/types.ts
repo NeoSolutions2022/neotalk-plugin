@@ -1,8 +1,7 @@
-export type PhraseSource = 'welcome' | 'selection' | 'microphone' | 'tab-audio' | 'manual';
+export type PhraseSource = 'selection' | 'microphone' | 'tab-audio' | 'manual';
 
 export type ExtensionPreferences = {
   proxyUrl: string;
-  autoWelcomeEnabled: boolean;
   captionsEnabled: boolean;
   avatarExpanded: boolean;
   developerMode: boolean;
@@ -29,6 +28,13 @@ export type DeveloperError = { message: string; detail?: string; createdAt: numb
 
 export type CaptionState = {
   caption: string;
+  /**
+   * Texto ainda em reconhecimento, que muda a cada instante e será substituído
+   * pela versão final. Fica separado de `caption` porque só o texto confirmado
+   * pode ser acumulado e mandado para tradução — o parcial é descartável por
+   * natureza, e some assim que a frase fecha.
+   */
+  partialCaption?: string;
   status: string;
   fileUrl?: string;
   error?: string;
@@ -68,10 +74,30 @@ export type OffscreenMessage =
   | { type: 'NEOTALK_OFFSCREEN_START'; streamId: string }
   | { type: 'NEOTALK_OFFSCREEN_STOP' }
   | { type: 'NEOTALK_OFFSCREEN_START_MIC' }
-  | { type: 'NEOTALK_OFFSCREEN_STOP_MIC' };
+  | { type: 'NEOTALK_OFFSCREEN_STOP_MIC' }
+  | { type: 'NEOTALK_OFFSCREEN_PING' }
+  | { type: 'NEOTALK_OFFSCREEN_TRANSCRIBE_CHUNK'; audioBase64: string; mimeType: string };
 
-export type CaptureResponse = { ok: boolean; error?: string };
+export type CaptureResponse = { ok: boolean; error?: string; text?: string };
+
+/**
+ * Um trecho de áudio gravado no content script.
+ *
+ * `partial: true` é uma prévia do trecho ainda aberto, mandada a cada ~1,2s
+ * para o texto ir aparecendo enquanto o áudio toca; o mesmo trecho é reenviado
+ * várias vezes, sempre maior. `partial: false` (ou ausente) é o trecho fechado
+ * na pausa da fala — só esse conta como texto definitivo e vai para tradução.
+ */
+export type PageAudioChunkMessage = {
+  type: 'NEOTALK_PAGE_AUDIO_CHUNK';
+  sessionId: string;
+  sequence: number;
+  audioBase64: string;
+  mimeType: string;
+  partial?: boolean;
+};
 
 export type RuntimeMessage = SubmitPhraseMessage | TabAudioMessage | MicrophoneMessage | OffscreenMessage
-  | { type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT'; frase: string; sessionId: string; sequence: number; mode: AudioCaptureMode }
-  | { type: 'NEOTALK_WHICH_TAB' };
+  | { type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT'; frase: string; sessionId: string; sequence: number; mode: AudioCaptureMode; partial?: boolean }
+  | { type: 'NEOTALK_WHICH_TAB' }
+  | PageAudioChunkMessage;
