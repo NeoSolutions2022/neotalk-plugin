@@ -1,4 +1,3 @@
-import { updateAvatarVideo } from '../shared/avatar.js';
 import { renderCaptionState } from '../shared/captions.js';
 import { MESSAGES } from '../shared/messages.js';
 import { AUDIO_CAPTURE_STATE_KEY, CAPTION_STATE_KEY, getAudioCaptureState, getCaptionState, getPreferences, getSelectedText, getSessionTranscript, saveCaptionState, savePreferences } from '../shared/storage.js';
@@ -6,8 +5,6 @@ import type { CaptureResponse, RuntimeMessage } from '../shared/types.js';
 
 const captionElement = document.querySelector<HTMLElement>('#caption')!;
 const statusElement = document.querySelector<HTMLElement>('#status')!;
-const videoElement = document.querySelector<HTMLVideoElement>('#avatar-video')!;
-const placeholderElement = document.querySelector<HTMLElement>('#avatar-placeholder')!;
 const manualText = document.querySelector<HTMLTextAreaElement>('#manualText')!;
 const tabAudioButton = document.querySelector<HTMLButtonElement>('#tabAudioButton')!;
 const microphoneButton = document.querySelector<HTMLButtonElement>('#microphoneButton')!;
@@ -24,11 +21,6 @@ async function refreshUi(): Promise<void> {
   if (selectedText && manualText.value.trim().length === 0) manualText.value = selectedText;
   selectionModeButton.textContent = preferences.selectionModeEnabled ? 'Desativar modo seleção' : 'Ativar modo seleção';
   captionElement.hidden = !preferences.captionsEnabled;
-  document.querySelector('#avatar-container')?.classList.toggle('expanded', preferences.avatarExpanded);
-  if (state.fileUrl) {
-    placeholderElement.hidden = true;
-    updateAvatarVideo(videoElement, state.fileUrl);
-  }
   const transitioning = ['starting', 'loading-model', 'stopping'].includes(capture.phase);
   microphoneButton.disabled = transitioning || (capture.phase !== 'inactive' && capture.phase !== 'error' && capture.mode !== 'microphone');
   tabAudioButton.disabled = transitioning || (capture.phase !== 'inactive' && capture.phase !== 'error' && capture.mode !== 'tab');

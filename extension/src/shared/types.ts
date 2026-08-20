@@ -1,7 +1,12 @@
 export type PhraseSource = 'selection' | 'microphone' | 'tab-audio' | 'manual';
 
+export type AvatarName = 'lia' | 'asuna';
+
 export type ExtensionPreferences = {
   proxyUrl: string;
+  /** Base da plataforma Avatar3D, que hospeda o widget 3D embutido no balão. */
+  avatar3dUrl: string;
+  avatarName: AvatarName;
   captionsEnabled: boolean;
   avatarExpanded: boolean;
   developerMode: boolean;
@@ -97,7 +102,14 @@ export type PageAudioChunkMessage = {
   partial?: boolean;
 };
 
-export type RuntimeMessage = SubmitPhraseMessage | TabAudioMessage | MicrophoneMessage | OffscreenMessage
+/**
+ * Uma frase pronta para virar sinal no avatar 3D, mandada para o content script
+ * da aba — é lá que o balão hospeda o widget. Substitui o caminho antigo, em que
+ * o service worker chamava a API NeoTalk e devolvia um `fileUrl` de vídeo.
+ */
+export type SignPhraseMessage = { type: 'NEOTALK_SIGN_PHRASE'; frase: string };
+
+export type RuntimeMessage = SubmitPhraseMessage | TabAudioMessage | MicrophoneMessage | OffscreenMessage | SignPhraseMessage
   | { type: 'NEOTALK_TAB_AUDIO_TRANSCRIPT'; frase: string; sessionId: string; sequence: number; mode: AudioCaptureMode; partial?: boolean }
   | { type: 'NEOTALK_WHICH_TAB' }
   | PageAudioChunkMessage;

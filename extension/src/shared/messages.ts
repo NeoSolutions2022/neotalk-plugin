@@ -12,7 +12,9 @@ export const MESSAGES = {
   noMediaElement: 'Não encontramos áudio tocando nesta página. Dê play num vídeo/áudio, ou use o popup da extensão para capturar a aba inteira.',
   chunkTranscriptionFailed: 'Um trecho do áudio não pôde ser transcrito.',
   translationError: 'Não foi possível traduzir agora. Tente novamente.',
-  nothingToTranslate: 'Não há texto traduzível na seleção.'
+  nothingToTranslate: 'Não há texto traduzível na seleção.',
+  /** O avatar 3D vive no balão; sem ele nesta aba, não há onde sinalizar. */
+  panelUnavailable: 'Abra o balão do NeoTalk nesta página para ver o avatar.'
 } as const;
 
 /**

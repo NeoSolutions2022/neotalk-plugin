@@ -1,4 +1,3 @@
-import { submitPhrase } from '../shared/api.js';
 import { MESSAGES } from '../shared/messages.js';
 import { conflictingMode, shouldIgnoreStart, shouldIgnoreStop } from '../shared/capture-guard.js';
 import { MICROPHONE_PERMISSION_REQUIRED, MICROPHONE_TIMEOUT, NO_MEDIA_ELEMENT } from '../shared/errors.js';
@@ -272,6 +271,30 @@ async function requestStop(): Promise<CaptureResponse> {
   return current.mode === 'microphone' ? stopMicrophone() : stopTabAudio();
 }
 
+/**
+ * Entrega a frase ao balão, que é onde o avatar 3D vive.
+ *
+ * Substitui o caminho antigo, em que o service worker chamava a API NeoTalk,
+ * esperava o `file_url` e gravava no estado para o balão tocar um vídeo. Agora
+ * quem fala com a NeoTalk é o backend do Avatar3D, do outro lado do widget.
+ *
+ * A aba certa depende da fonte: o áudio da aba pertence a uma aba específica
+ * (`state.tabId`), enquanto o microfone é global e vai para a aba ativa.
+ */
+async function signInTab(frase: string, options: { mode?: AudioCaptureMode; tabId?: number } = {}): Promise<boolean> {
+  let tabId = options.tabId;
+  if (tabId === undefined && options.mode === 'tab') tabId = (await getAudioCaptureState()).tabId;
+  if (tabId === undefined) tabId = (await getActiveTab())?.id;
+  if (tabId === undefined) return false;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'NEOTALK_SIGN_PHRASE', frase });
+    return true;
+  } catch {
+    // Aba sem content script (páginas internas do Chrome) ou já fechada.
+    return false;
+  }
+}
+
 const transcriptionChains = new Map<string, Promise<void>>();
 const lastSequences = new Map<string, number>();
 /** Última sequência já exibida na legenda, por sessão — independente de quando a tradução daquele trecho roda. */
@@ -347,9 +370,9 @@ function queueTranscript(segment: TranscribedSegment): Promise<void> {
       if (!phrase) return;
       const pending = pendingTranslations.get(segment.sessionId) ?? 1;
       await saveCaptionState({ status: translationQueueMessage(pending) });
-      // A legenda já mostra este texto (escrito acima, na chegada) — aqui só
-      // a tradução de fato roda; `submitPhrase` não deve reescrevê-la.
-      await submitPhrase(phrase, segment.mode === 'microphone' ? 'microphone' : 'tab-audio', true);
+      // A legenda já mostra este texto (escrito acima, na chegada) — aqui a
+      // frase só é entregue ao avatar 3D, que a enfileira e sinaliza em ordem.
+      await signInTab(phrase, { mode: segment.mode });
     } finally {
       if (countedAsPending) {
         const remaining = Math.max(0, (pendingTranslations.get(segment.sessionId) ?? 1) - 1);
@@ -427,8 +450,11 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
         await saveSelectedText(frase);
         await saveCaptionState({ caption: frase, status: 'Texto selecionado pronto para traduzir.', error: undefined });
       }
-      const fileUrl = await submitPhrase(frase, message.source);
-      sendResponse({ ok: Boolean(fileUrl), fileUrl });
+      // O balão da aba que pediu é quem tem o avatar; do popup não há
+      // `sender.tab`, e aí vale a aba ativa.
+      const delivered = await signInTab(frase, { tabId: sender.tab?.id });
+      if (!delivered) await saveCaptionState({ status: '', error: MESSAGES.panelUnavailable });
+      sendResponse({ ok: delivered, error: delivered ? undefined : MESSAGES.panelUnavailable });
       return;
     }
 

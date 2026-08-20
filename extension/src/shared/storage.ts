@@ -1,8 +1,16 @@
 import type { AudioCaptureState, CaptionState, DeveloperError, ExtensionPreferences } from './types.js';
 
 export const DEFAULT_PROXY_URL = 'https://infra-neotalk-api.k3p3ex.easypanel.host';
+/**
+ * Base da plataforma Avatar3D. Ela é quem fala com a NeoTalk pelo servidor, então
+ * o widget não precisa de chave nenhuma no navegador. Configurável para permitir
+ * apontar a uma instância local (`http://localhost:8080`) durante o desenvolvimento.
+ */
+export const DEFAULT_AVATAR3D_URL = 'https://infra-avatar3d-oficial.k3p3ex.easypanel.host';
 export const DEFAULT_PREFERENCES: ExtensionPreferences = {
   proxyUrl: DEFAULT_PROXY_URL,
+  avatar3dUrl: DEFAULT_AVATAR3D_URL,
+  avatarName: 'lia',
   captionsEnabled: true,
   avatarExpanded: true,
   developerMode: false,

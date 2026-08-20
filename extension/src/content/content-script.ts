@@ -1,6 +1,8 @@
 import { isActiveFor, isTransitional, reconcile } from '../shared/capture-guard.js';
 import { captureErrorMessage } from '../shared/messages.js';
-import { addDeveloperError, clearCaptionState } from '../shared/storage.js';
+import { addDeveloperError, clearCaptionState, DEFAULT_AVATAR3D_URL, getPreferences } from '../shared/storage.js';
+import { sanitizePhrase } from '../shared/text.js';
+import { SignQueue } from './sign-queue.js';
 import { EXTENSION_HOST_ID } from './page-audio-utils.js';
 import { isPageAudioActive, startPageAudioCapture, stopPageAudioCapture } from './page-audio.js';
 import type { AudioCaptureMode, AudioCaptureState } from '../shared/types.js';
@@ -15,6 +17,10 @@ type SelectionPreferences = { selectionModeEnabled?: boolean; autoSubmitSelectio
 type CaptionState = { caption?: string; partialCaption?: string; status?: string; fileUrl?: string; error?: string };
 
 const HOST_ID = EXTENSION_HOST_ID;
+/** Limite por frase do POST /api/v1/mvp/sign do Avatar3D. */
+const MAX_PHRASE_CHARS = 500;
+/** Origem das páginas desta extensão — alvo exato do postMessage para a ponte. */
+const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('')).origin;
 const TOOLTIP_CLASS = 'neotalk-extension-tooltip';
 const PANEL_CLASS = 'neotalk-extension-panel';
 let selectedPhrase = '';
@@ -32,7 +38,7 @@ function sendSelectedPhrase(frase: string): void {
   void chrome.runtime.sendMessage(message);
 }
 
-function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; textarea: HTMLTextAreaElement; sendButton: HTMLButtonElement; header: HTMLElement; video: HTMLVideoElement; status: HTMLElement; menuButton: HTMLButtonElement; actions: HTMLElement; tabAudioButton: HTMLButtonElement; microphoneButton: HTMLButtonElement; minimizeButton: HTMLButtonElement; bubble: HTMLButtonElement } {
+function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; textarea: HTMLTextAreaElement; sendButton: HTMLButtonElement; header: HTMLElement; video: HTMLIFrameElement; status: HTMLElement; menuButton: HTMLButtonElement; actions: HTMLElement; tabAudioButton: HTMLButtonElement; microphoneButton: HTMLButtonElement; minimizeButton: HTMLButtonElement; bubble: HTMLButtonElement } {
   const existingHost = document.getElementById(HOST_ID);
   if (existingHost?.shadowRoot) {
     const existingTooltip = existingHost.shadowRoot.querySelector<HTMLButtonElement>(`.${TOOLTIP_CLASS}`);
@@ -40,7 +46,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     const existingTextarea = existingHost.shadowRoot.querySelector<HTMLTextAreaElement>('#neotalk-extension-selection-text');
     const existingSendButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-selection-send');
     const existingHeader = existingHost.shadowRoot.querySelector<HTMLElement>('.neotalk-extension-panel-header');
-    const existingVideo = existingHost.shadowRoot.querySelector<HTMLVideoElement>('#neotalk-extension-avatar-video');
+    const existingVideo = existingHost.shadowRoot.querySelector<HTMLIFrameElement>('#neotalk-extension-avatar-frame');
     const existingStatus = existingHost.shadowRoot.querySelector<HTMLElement>('#neotalk-extension-status');
     const existingMenuButton = existingHost.shadowRoot.querySelector<HTMLButtonElement>('#neotalk-extension-menu');
     const existingActions = existingHost.shadowRoot.querySelector<HTMLElement>('#neotalk-extension-actions');
@@ -138,11 +144,11 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
         box-shadow: 0 10px 28px rgba(15, 23, 42, .30);
       }
       .neotalk-extension-panel-body { display: grid; gap: 8px; padding: 12px; }
-      .neotalk-extension-avatar-box { min-height: 150px; border-radius: 14px; overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center; }
-      .neotalk-extension-avatar-box:not(.expanded) { min-height: 100px; max-height: 130px; }
-      #neotalk-extension-avatar-video { width: 100%; height: auto; max-height: 210px; display: block; background: #000; }
+      .neotalk-extension-avatar-box { min-height: 220px; border-radius: 14px; overflow: hidden; background: #ffffff; display: flex; align-items: center; justify-content: center; position: relative; }
+      .neotalk-extension-avatar-box:not(.expanded) { min-height: 150px; max-height: 180px; }
+      #neotalk-extension-avatar-frame { width: 100%; height: 100%; min-height: inherit; border: 0; display: block; background: #ffffff; }
       [hidden] { display: none !important; }
-      #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #e2e8f0; text-align: center; font-size: 13px; }
+      #neotalk-extension-avatar-placeholder { margin: 0; padding: 14px; color: #475569; text-align: center; font-size: 13px; }
       #neotalk-extension-status { min-height: 18px; color: #475569; font-size: 12px; }
       #neotalk-extension-actions[hidden] { display: none; }
       #neotalk-extension-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -190,7 +196,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
       <div class="neotalk-extension-panel-header"><span class="neotalk-extension-panel-title">NeoTalk seleção <small>arraste</small></span><button id="neotalk-extension-minimize" type="button" aria-label="Minimizar painel">−</button><button id="neotalk-extension-menu" type="button" aria-label="Abrir ações">⋯</button></div>
       <div class="neotalk-extension-panel-body">
         <div class="neotalk-extension-avatar-box">
-          <video id="neotalk-extension-avatar-video" autoplay muted loop controls playsinline hidden></video>
+          <iframe id="neotalk-extension-avatar-frame" title="Avatar 3D NeoTalk" allow="autoplay" hidden></iframe>
           <p id="neotalk-extension-avatar-placeholder">Avatar aguardando tradução.</p>
         </div>
         <div id="neotalk-extension-status" aria-live="polite"></div>
@@ -216,7 +222,7 @@ function createSelectionUi(): { tooltip: HTMLButtonElement; panel: HTMLElement; 
     textarea: shadow.querySelector<HTMLTextAreaElement>('#neotalk-extension-selection-text')!,
     sendButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-selection-send')!,
     header: shadow.querySelector<HTMLElement>('.neotalk-extension-panel-header')!,
-    video: shadow.querySelector<HTMLVideoElement>('#neotalk-extension-avatar-video')!,
+    video: shadow.querySelector<HTMLIFrameElement>('#neotalk-extension-avatar-frame')!,
     status: shadow.querySelector<HTMLElement>('#neotalk-extension-status')!,
     menuButton: shadow.querySelector<HTMLButtonElement>('#neotalk-extension-menu')!,
     actions: shadow.querySelector<HTMLElement>('#neotalk-extension-actions')!,
@@ -263,29 +269,8 @@ function updateOverlayState(state: CaptionState): void {
   console.log('NeoTalk [balão]', { confirmado: state.caption, parcial: state.partialCaption ?? '', status: state.error || state.status || '' });
   selectionUi.status.textContent = state.error || state.status || '';
   applyTextareaLock();
-  if (state.fileUrl) {
-    selectionUi.video.src = state.fileUrl;
-    selectionUi.video.autoplay = true;
-    selectionUi.video.muted = true;
-    selectionUi.video.loop = true;
-    selectionUi.video.controls = true;
-    selectionUi.video.playsInline = true;
-    const placeholder = selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder');
-    if (placeholder) placeholder.hidden = true;
-    selectionUi.video.hidden = false;
-    selectionUi.video.load();
-    void selectionUi.video.play().catch(() => undefined);
-    return;
-  }
-  // Sem vídeo no estado, o avatar precisa sumir. Sem este ramo, o `fileUrl` da
-  // última tradução (que fica em `chrome.storage.local`) voltava a tocar em
-  // loop, sozinho, em toda página carregada.
-  selectionUi.video.pause();
-  selectionUi.video.removeAttribute('src');
-  selectionUi.video.load();
-  selectionUi.video.hidden = true;
-  const placeholder = selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder');
-  if (placeholder) placeholder.hidden = false;
+  // O avatar não depende mais do estado de legenda: quem o alimenta é a fila de
+  // sinais, e ele vive dentro do iframe da ponte enquanto o balão estiver aberto.
 }
 
 function applyPreferences(preferences?: SelectionPreferences): void {
@@ -377,13 +362,132 @@ function openPanel(): void {
   lastAutoSubmittedPhrase = '';
   updateOverlayState({});
   void clearCaptionState();
+  mountAvatar();
   updateMinimizedState();
 }
 
 function closePanel(): void {
   panelOpen = false;
+  unmountAvatar();
   updateMinimizedState();
 }
+
+/* ------------------------------------------------------------------ avatar 3D */
+
+/**
+ * O avatar 3D vive num iframe da PRÓPRIA extensão (`src/avatar/avatar.html`), que
+ * por sua vez embute o widget do Avatar3D. O desvio é obrigatório: um iframe para
+ * domínio externo criado por content script obedece ao `frame-src` da página
+ * hospedeira, e o balão roda em `<all_urls>` — em sites com CSP restrito o avatar
+ * não carregaria. Recursos de `web_accessible_resources` são isentos desse CSP.
+ *
+ * O token é o segredo desta sessão entre o balão e a ponte: o `window.parent` da
+ * ponte é a página do usuário, então sem ele qualquer script daquela página
+ * poderia mandar o avatar sinalizar texto arbitrário.
+ */
+let avatarToken = '';
+
+const signQueue = new SignQueue({
+  send: (phrase) => {
+    postToAvatar({ type: 'neotalk:sign', phrase });
+    selectionUi.status.textContent = 'Traduzindo para Libras...';
+  },
+  schedule: (run, delayMs) => {
+    const timer = window.setTimeout(run, delayMs);
+    return () => window.clearTimeout(timer);
+  },
+  resolveDuration: async (taskId) => {
+    if (!taskId) return null;
+    try {
+      const base = await avatarBaseUrl();
+      const response = await fetch(`${base}/api/v1/mvp/tasks/${encodeURIComponent(taskId)}`);
+      if (!response.ok) return null;
+      const body = await response.json() as { payload?: { pose?: { frame_count?: number; fps?: number } } };
+      const pose = body?.payload?.pose;
+      if (!pose?.frame_count || !pose.fps) return null;
+      return (pose.frame_count / pose.fps) * 1_000;
+    } catch {
+      // Sem a duração real a fila usa o palpite dela. Uma falha de rede aqui não
+      // pode travar as frases seguintes.
+      return null;
+    }
+  }
+});
+
+async function avatarBaseUrl(): Promise<string> {
+  const preferences = await getPreferences();
+  return (preferences.avatar3dUrl || DEFAULT_AVATAR3D_URL).replace(/\/+$/, '');
+}
+
+function postToAvatar(command: Record<string, unknown>): void {
+  const target = selectionUi.video.contentWindow;
+  if (!target || !avatarToken) return;
+  target.postMessage({ ...command, neotalkToken: avatarToken }, EXTENSION_ORIGIN);
+}
+
+function mountAvatar(): void {
+  avatarToken = crypto.randomUUID();
+  void (async () => {
+    const preferences = await getPreferences();
+    const base = (preferences.avatar3dUrl || DEFAULT_AVATAR3D_URL).replace(/\/+$/, '');
+    const hash = new URLSearchParams({
+      token: avatarToken,
+      base,
+      avatar: preferences.avatarName ?? 'lia',
+      // A ponte responde exatamente para esta origem, em vez de '*': a
+      // transcrição do microfone passa por essas mensagens.
+      parentOrigin: window.location.origin
+    });
+    selectionUi.video.src = `${chrome.runtime.getURL('src/avatar/avatar.html')}#${hash.toString()}`;
+    selectionUi.video.hidden = false;
+    const placeholder = selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder');
+    if (placeholder) placeholder.hidden = true;
+  })();
+}
+
+function unmountAvatar(): void {
+  // Descarregar de verdade: o Unity WebGL é pesado, e o balão fechado não pode
+  // continuar consumindo memória da aba.
+  signQueue.reset();
+  avatarToken = '';
+  selectionUi.video.removeAttribute('src');
+  selectionUi.video.hidden = true;
+  const placeholder = selectionUi.video.parentElement?.querySelector<HTMLElement>('#neotalk-extension-avatar-placeholder');
+  if (placeholder) placeholder.hidden = false;
+}
+
+/** Enfileira uma frase para o avatar, respeitando o limite do servidor. */
+function signPhrase(raw: string): void {
+  const phrase = sanitizePhrase(raw, { maxChars: MAX_PHRASE_CHARS });
+  if (!phrase) return;
+  if (raw.trim().length > MAX_PHRASE_CHARS) {
+    selectionUi.status.textContent = `Texto cortado em ${MAX_PHRASE_CHARS} caracteres, o limite do avatar.`;
+  }
+  if (!panelOpen) openPanel();
+  signQueue.enqueue(phrase);
+}
+
+window.addEventListener('message', (event) => {
+  if (event.source !== selectionUi.video.contentWindow) return;
+  const data = event.data as { type?: string; neotalkToken?: string; taskId?: string; words?: unknown[]; message?: string } | null;
+  if (!data || typeof data !== 'object' || !avatarToken || data.neotalkToken !== avatarToken) return;
+
+  console.log('NeoTalk [avatar]', data.type, data);
+
+  if (data.type === 'neotalk:ready') {
+    signQueue.onReady();
+    return;
+  }
+  if (data.type === 'neotalk:playing') {
+    signQueue.onPlaying(data.taskId, Array.isArray(data.words) ? data.words.length : 1);
+    selectionUi.status.textContent = '';
+    return;
+  }
+  if (data.type === 'neotalk:error') {
+    selectionUi.status.textContent = data.message || 'O avatar não conseguiu sinalizar esta frase.';
+    signQueue.onError();
+  }
+});
 
 /**
  * Liga o áudio da aba por `captureStream()`, aqui dentro da própria página.
@@ -426,6 +530,13 @@ chrome.runtime.onMessage.addListener((message: { type?: string }, _sender, sendR
   if (message?.type === 'NEOTALK_STOP_PAGE_AUDIO') {
     void stopPageAudioCapture().then(() => sendResponse({ ok: true }), () => sendResponse({ ok: true }));
     return true;
+  }
+  // Frase pronta para virar sinal — vem da transcrição ao vivo (service worker),
+  // do popup, ou da seleção de texto. O avatar mora aqui, no balão.
+  if (message?.type === 'NEOTALK_SIGN_PHRASE') {
+    signPhrase(String((message as { frase?: unknown }).frase ?? ''));
+    sendResponse({ ok: true });
+    return false;
   }
   return false;
 });

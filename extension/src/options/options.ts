@@ -3,6 +3,8 @@ import type { DeveloperError, ExtensionPreferences } from '../shared/types.js';
 
 const form = document.querySelector<HTMLFormElement>('#optionsForm')!;
 const proxyUrl = document.querySelector<HTMLInputElement>('#proxyUrl')!;
+const avatar3dUrl = document.querySelector<HTMLInputElement>('#avatar3dUrl')!;
+const avatarName = document.querySelector<HTMLSelectElement>('#avatarName')!;
 const captionsEnabled = document.querySelector<HTMLInputElement>('#captionsEnabled')!;
 const avatarExpanded = document.querySelector<HTMLInputElement>('#avatarExpanded')!;
 const selectionModeEnabled = document.querySelector<HTMLInputElement>('#selectionModeEnabled')!;
@@ -50,6 +52,8 @@ async function renderMicrophonePermissionState(): Promise<void> {
 async function loadOptions(): Promise<void> {
   const preferences = await getPreferences();
   proxyUrl.value = preferences.proxyUrl;
+  avatar3dUrl.value = preferences.avatar3dUrl;
+  avatarName.value = preferences.avatarName;
   captionsEnabled.checked = preferences.captionsEnabled;
   avatarExpanded.checked = preferences.avatarExpanded;
   selectionModeEnabled.checked = preferences.selectionModeEnabled;
@@ -74,8 +78,24 @@ form.addEventListener('submit', (event) => {
     status.textContent = 'Informe uma URL HTTPS válida. HTTP só é permitido para desenvolvimento local.';
     return;
   }
+  let normalizedAvatarUrl: string;
+  try {
+    const parsed = new URL(avatar3dUrl.value.trim());
+    // Mesma regra do proxy: HTTP só para desenvolvimento local, e nunca com
+    // credenciais embutidas na URL.
+    const localHttp = parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !localHttp) throw new Error();
+    if (parsed.username || parsed.password) throw new Error();
+    normalizedAvatarUrl = parsed.toString().replace(/\/$/, '');
+  } catch {
+    status.textContent = 'Informe uma URL HTTPS válida para o avatar 3D. HTTP só é permitido em localhost.';
+    return;
+  }
+
   const preferences: ExtensionPreferences = {
     proxyUrl: normalizedUrl,
+    avatar3dUrl: normalizedAvatarUrl,
+    avatarName: avatarName.value === 'asuna' ? 'asuna' : 'lia',
     captionsEnabled: captionsEnabled.checked,
     avatarExpanded: avatarExpanded.checked,
     selectionModeEnabled: selectionModeEnabled.checked,
