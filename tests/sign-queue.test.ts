@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fallbackDuration, MAX_QUEUED_PHRASES, SignQueue } from '../extension/src/content/sign-queue.ts';
+import { fallbackDuration, MAX_QUEUED_PHRASES, MIN_HOLD_MS, overlapDelay, PIPELINE_LEAD_MS, SignQueue } from '../extension/src/content/sign-queue.ts';
 
 /** Relógio de mentira: nada de espera real, e cada agendamento é visível. */
 function createHarness(duration: number | null = 1_000) {
@@ -119,4 +119,55 @@ test('o palpite de duração respeita o piso e o teto', () => {
   assert.equal(fallbackDuration(1), 1_500);
   assert.equal(fallbackDuration(5), 6_000);
   assert.equal(fallbackDuration(1_000), 12_000);
+});
+
+test('a frase que já está tocando não é enfileirada de novo', () => {
+  const harness = createHarness();
+  harness.queue.onReady();
+  assert.equal(harness.queue.enqueue('navio'), 'queued');
+  assert.deepEqual(harness.sent, ['navio']);
+
+  // Cinco cliques na mesma frase enquanto ela ainda está em curso: nenhum entra.
+  for (let index = 0; index < 5; index += 1) {
+    assert.equal(harness.queue.enqueue('navio'), 'duplicate');
+  }
+  assert.equal(harness.queue.size, 0);
+  assert.deepEqual(harness.sent, ['navio']);
+});
+
+test('a frase que já está esperando na fila não entra de novo', () => {
+  const harness = createHarness();
+  harness.queue.onReady();
+  harness.queue.enqueue('uma');
+  assert.equal(harness.queue.enqueue('duas'), 'queued');
+  assert.equal(harness.queue.enqueue('duas'), 'duplicate');
+  assert.equal(harness.queue.enqueue('duas'), 'duplicate');
+  assert.equal(harness.queue.size, 1);
+});
+
+test('a mesma frase pode voltar depois que a anterior termina', async () => {
+  const harness = createHarness();
+  harness.queue.onReady();
+  harness.queue.enqueue('navio');
+  await harness.finishPlayback();
+  // A cópia em curso já terminou — não é mais duplicata.
+  assert.equal(harness.queue.enqueue('navio'), 'queued');
+  assert.deepEqual(harness.sent, ['navio', 'navio']);
+});
+
+test('frases diferentes nunca são tratadas como duplicata', () => {
+  const harness = createHarness();
+  harness.queue.onReady();
+  assert.equal(harness.queue.enqueue('uma'), 'queued');
+  assert.equal(harness.queue.enqueue('duas'), 'queued');
+  assert.equal(harness.queue.enqueue('tres'), 'queued');
+  assert.equal(harness.queue.size, 2);
+});
+
+test('a próxima frase é liberada antes do fim do sinal, com margem', () => {
+  // ~8s medidos em campo: sobrepor com PIPELINE_LEAD_MS de folga.
+  assert.equal(overlapDelay(8_000), 8_000 - PIPELINE_LEAD_MS);
+  // Sinal mais curto que a margem: nunca menos que o piso.
+  assert.equal(overlapDelay(1_000), MIN_HOLD_MS);
+  assert.equal(overlapDelay(0), MIN_HOLD_MS);
 });

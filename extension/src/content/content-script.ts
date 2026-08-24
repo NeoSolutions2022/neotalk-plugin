@@ -399,7 +399,7 @@ let avatarToken = '';
 const signQueue = new SignQueue({
   send: (phrase) => {
     postToAvatar({ type: 'neotalk:sign', phrase });
-    selectionUi.status.textContent = 'Traduzindo para Libras...';
+    renderAvatarStatus('queued');
   },
   schedule: (run, delayMs) => {
     const timer = window.setTimeout(run, delayMs);
@@ -568,6 +568,25 @@ function unmountAvatar(): void {
   }
 }
 
+/**
+ * Traduz o `status` do widget (`neotalk:status`) para a linha de status do
+ * balão, com o tamanho da fila junto quando houver espera. Sem isto, o clique
+ * não tinha retorno visual nenhum por 7-9 s — o tempo real que o Avatar3D leva
+ * para preparar um sinal — e a reação natural era clicar de novo, empilhando
+ * cópias da mesma frase (foi o que causou uma repetição de mais de um minuto
+ * num teste real, antes do `enqueue` passar a descartar duplicatas).
+ */
+function renderAvatarStatus(status: string): void {
+  const queued = signQueue.size;
+  const suffix = queued > 0 ? ` (${queued} na fila)` : '';
+  const text: Record<string, string> = {
+    queued: 'Enviando para tradução...',
+    processing: 'Traduzindo...',
+    loading_pose: 'Preparando o sinal...'
+  };
+  selectionUi.status.textContent = text[status] ? `${text[status]}${suffix}` : '';
+}
+
 /** Enfileira uma frase para o avatar, respeitando o limite do servidor. */
 function signPhrase(raw: string): void {
   const phrase = sanitizePhrase(raw, { maxChars: MAX_PHRASE_CHARS });
@@ -580,12 +599,14 @@ function signPhrase(raw: string): void {
     sendToAvatarWindow(phrase);
     return;
   }
-  signQueue.enqueue(phrase);
+  if (signQueue.enqueue(phrase) === 'duplicate') {
+    selectionUi.status.textContent = 'Esta frase já está na fila.';
+  }
 }
 
 window.addEventListener('message', (event) => {
   if (event.source !== selectionUi.video.contentWindow) return;
-  const data = event.data as { type?: string; neotalkToken?: string; taskId?: string; words?: unknown[]; message?: string } | null;
+  const data = event.data as { type?: string; neotalkToken?: string; taskId?: string; words?: unknown[]; message?: string; status?: string } | null;
   if (!data || typeof data !== 'object' || !avatarToken || data.neotalkToken !== avatarToken) return;
 
   console.log('NeoTalk [avatar]', data.type, data);
@@ -599,6 +620,10 @@ window.addEventListener('message', (event) => {
   if (data.type === 'neotalk:ready') {
     window.clearTimeout(embedStallTimer);
     signQueue.onReady();
+    return;
+  }
+  if (data.type === 'neotalk:status' && data.status) {
+    renderAvatarStatus(data.status);
     return;
   }
   if (data.type === 'neotalk:playing') {

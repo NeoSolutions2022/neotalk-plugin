@@ -23,13 +23,25 @@
  */
 export const MAX_QUEUED_PHRASES = 10;
 
-/** Folga entre o fim estimado de um sinal e o envio do próximo. */
-export const GAP_MS = 250;
+/**
+ * O `POST /api/v1/mvp/sign` do Avatar3D mais o polling do widget levam de 7 a 9 s
+ * para preparar uma pose — e o widget NÃO corta a animação em curso quando recebe
+ * um `neotalk:sign` novo, só troca quando a pose nova fica pronta. Por isso a
+ * próxima frase pode ser pedida ANTES do fim do sinal atual: o preparo roda em
+ * paralelo com o que já está tocando, e some quase todo o tempo morto entre uma
+ * frase e outra. Calibrado com folga sobre os ~7 s observados — se cortar o fim
+ * de um sinal na prática, este número está alto demais.
+ */
+export const PIPELINE_LEAD_MS = 5_000;
+/** Piso do tempo de exibição, para sinais curtos não virarem rajada. */
+export const MIN_HOLD_MS = 800;
 
 /** Quando a duração real não pôde ser obtida, este palpite por sinal entra no lugar. */
 export const FALLBACK_MS_PER_WORD = 1_200;
 export const FALLBACK_MIN_MS = 1_500;
 export const FALLBACK_MAX_MS = 12_000;
+
+export type EnqueueResult = 'queued' | 'duplicate';
 
 export type SignQueueOptions = {
   /** Manda a frase ao widget. */
@@ -48,6 +60,11 @@ export function fallbackDuration(wordCount: number): number {
   return Math.min(FALLBACK_MAX_MS, Math.max(FALLBACK_MIN_MS, estimate));
 }
 
+/** Tempo de espera antes de liberar a próxima, sobrepondo o preparo dela com o fim da atual. */
+export function overlapDelay(durationMs: number): number {
+  return Math.max(MIN_HOLD_MS, durationMs - PIPELINE_LEAD_MS);
+}
+
 export class SignQueue {
   private readonly options: SignQueueOptions;
   private readonly pending: string[] = [];
@@ -58,6 +75,8 @@ export class SignQueue {
   private generation = 0;
   /** Frases descartadas por excesso, para o balão poder avisar. */
   private droppedCount = 0;
+  /** A frase que está tocando (ou sendo preparada) agora, para detectar repetição. */
+  private current: string | null = null;
 
   constructor(options: SignQueueOptions) {
     this.options = options;
@@ -77,26 +96,38 @@ export class SignQueue {
     this.pump();
   }
 
-  enqueue(phrase: string): void {
+  /**
+   * Enfileira, a menos que a frase já esteja tocando ou já esperando na fila.
+   *
+   * Sem isto, clicar várias vezes na mesma frase (natural quando a resposta
+   * demora 7-9 s e nada na tela confirma o primeiro clique) empilhava cópias —
+   * foi o que fez o avatar repetir a mesma palavra por mais de um minuto num
+   * teste real. O chamador usa o retorno para avisar quando descartou.
+   */
+  enqueue(phrase: string): EnqueueResult {
     const trimmed = phrase.trim();
-    if (!trimmed) return;
+    if (!trimmed) return 'duplicate';
+    if (trimmed === this.current || this.pending.includes(trimmed)) return 'duplicate';
+
     this.pending.push(trimmed);
     while (this.pending.length > MAX_QUEUED_PHRASES) {
       this.pending.shift();
       this.droppedCount += 1;
     }
     this.pump();
+    return 'queued';
   }
 
   /**
-   * O widget começou a reproduzir. A partir daqui o relógio corre: quando a
-   * duração passar, a próxima frase pode entrar.
+   * O widget começou a reproduzir. A duração real decide quando a próxima frase
+   * é liberada — sobrepondo o preparo dela com o fim da atual (`overlapDelay`),
+   * em vez de esperar a reprodução terminar por inteiro.
    */
   onPlaying(taskId: string | undefined, wordCount: number): void {
     const generation = this.generation;
     void this.options.resolveDuration(taskId).then(
-      (duration) => this.scheduleNext(generation, duration ?? fallbackDuration(wordCount)),
-      () => this.scheduleNext(generation, fallbackDuration(wordCount))
+      (duration) => this.scheduleNext(generation, overlapDelay(duration ?? fallbackDuration(wordCount))),
+      () => this.scheduleNext(generation, overlapDelay(fallbackDuration(wordCount)))
     );
   }
 
@@ -107,6 +138,7 @@ export class SignQueue {
   onError(): void {
     this.generation += 1;
     this.clearTimer();
+    this.current = null;
     this.busy = false;
     this.pump();
   }
@@ -117,6 +149,7 @@ export class SignQueue {
     this.clearTimer();
     this.pending.length = 0;
     this.droppedCount = 0;
+    this.current = null;
     this.busy = false;
     this.ready = false;
   }
@@ -127,9 +160,10 @@ export class SignQueue {
     this.cancelTimer = this.options.schedule(() => {
       this.cancelTimer = null;
       if (generation !== this.generation) return;
+      this.current = null;
       this.busy = false;
       this.pump();
-    }, Math.max(0, delayMs) + GAP_MS);
+    }, Math.max(0, delayMs));
   }
 
   private clearTimer(): void {
@@ -142,6 +176,7 @@ export class SignQueue {
     const next = this.pending.shift();
     if (next === undefined) return;
     this.busy = true;
+    this.current = next;
     this.generation += 1;
     this.options.send(next);
   }
